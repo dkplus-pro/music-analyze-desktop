@@ -33,6 +33,11 @@ import {
   canReleaseManagedPath,
   isSourceAvailable
 } from "./services/source-file.js";
+import {
+  createSettingsService,
+  parseSettingsPatch,
+  type SettingsView
+} from "./services/settings-service.js";
 
 interface BuildAppOptions {
   analyzer?: MusicAnalyzer;
@@ -43,6 +48,7 @@ interface BuildAppOptions {
   feishuLibraryProvisioner?: FeishuLibraryProvisioner;
   feishuSyncService?: ReturnType<typeof createFeishuSyncService>;
   processAnalysisImmediately?: boolean;
+  settingsService?: ReturnType<typeof createSettingsService>;
   storageRoot: string;
 }
 
@@ -55,11 +61,14 @@ export async function buildApp({
   feishuLibraryProvisioner,
   feishuSyncService,
   processAnalysisImmediately = false,
+  settingsService,
   storageRoot
 }: BuildAppOptions) {
   const app = Fastify({ logger: false });
   await app.register(multipart, { limits: { files: 1, fileSize: 500 * 1024 * 1024 } });
   const importer = createImportService({ database, storageRoot });
+  const activeSettingsService =
+    settingsService ?? createSettingsService({ environment: process.env });
   let activeFeishuSyncService = feishuSyncService;
   let activeFeishuConnection = feishuConnection;
   const activateFeishuLibrary = async (
@@ -135,6 +144,24 @@ export async function buildApp({
   }
 
   app.get("/api/health", async () => ({ status: "ok" }));
+
+  app.get("/api/settings", async (): Promise<SettingsView> => activeSettingsService.read());
+
+  app.patch("/api/settings", async (request, reply) => {
+    const patch = parseSettingsPatch(request.body);
+    if (!patch) {
+      return reply.code(400).send({ error: "Invalid settings update" });
+    }
+    try {
+      return await activeSettingsService.update(patch);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "Settings file path is not configured") {
+        return reply.code(503).send({ error: "Local .env settings file is not configured" });
+      }
+      return reply.code(500).send({ error: "Unable to save local settings" });
+    }
+  });
 
   app.get("/api/feishu/status", async () => {
     if (!activeFeishuSyncService) {

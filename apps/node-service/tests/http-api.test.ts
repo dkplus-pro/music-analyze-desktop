@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import type { FeishuMusicRecord, MusicExporter } from "../src/services/feishu-exporter.js";
 import { createFeishuSyncService } from "../src/services/feishu-sync-service.js";
+import { createSettingsService } from "../src/services/settings-service.js";
 
 const samplePath = fileURLToPath(
   new URL("../../../tests/sample/10%20%E5%B8%8C%E6%9C%9B.mp3", import.meta.url)
@@ -23,6 +24,15 @@ describe("music HTTP API", () => {
   beforeEach(async () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), "analyze-music-api-"));
     database = await createDatabase({ url: `file:${join(temporaryRoot, "music.db")}` });
+    const settingsEnvPath = join(temporaryRoot, ".env");
+    await writeFile(
+      settingsEnvPath,
+      [
+        "BAILIAN_API_KEY=sk-test-secret",
+        "BAILIAN_BASE_URL=https://dashscope.example/v1",
+        "BAILIAN_MODEL=qwen-test"
+      ].join("\n")
+    );
     remainingAnalysisFailures = 0;
     app = await buildApp({
       analyzer: {
@@ -59,6 +69,7 @@ describe("music HTTP API", () => {
         })
       },
       processAnalysisImmediately: true,
+      settingsService: createSettingsService({ envPath: settingsEnvPath, environment: {} }),
       storageRoot: join(temporaryRoot, "music")
     });
   });
@@ -198,6 +209,30 @@ describe("music HTTP API", () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ kind: "IMPORTED" });
+  });
+
+  it("reads and updates masked local AI settings", async () => {
+    const settings = await app.inject({ method: "GET", url: "/api/settings" });
+    expect(settings.statusCode).toBe(200);
+    expect(settings.json()).toMatchObject({
+      ai: {
+        apiKeyConfigured: true,
+        apiKeySuffix: "...secret",
+        baseUrl: "https://dashscope.example/v1",
+        model: "qwen-test"
+      }
+    });
+    expect(JSON.stringify(settings.json())).not.toContain("sk-test-secret");
+
+    const updated = await app.inject({
+      method: "PATCH",
+      payload: { ai: { apiKey: "", model: "qwen-updated" } },
+      url: "/api/settings"
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({
+      ai: { apiKeyConfigured: true, apiKeySuffix: "...secret", model: "qwen-updated" }
+    });
   });
 
   it("tracks a browser import session across its manifest and file upload", async () => {

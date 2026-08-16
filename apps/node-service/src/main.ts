@@ -14,8 +14,10 @@ import {
 } from "./services/feishu-exporter.js";
 import { createFeishuSyncService } from "./services/feishu-sync-service.js";
 import { configuredValue } from "./services/runtime-config.js";
+import { createSettingsService } from "./services/settings-service.js";
 
 const databaseUrl = process.env["DATABASE_URL"] ?? "file:data/analyze-music.db";
+const settingsEnvPath = process.env["MUSIC_ENV_PATH"] ?? join(process.cwd(), "../../.env");
 if (databaseUrl.startsWith("file:")) {
   await mkdir(dirname(databaseUrl.slice("file:".length)), { recursive: true });
 }
@@ -68,6 +70,10 @@ const app = await buildApp({
       : undefined,
   feishuSyncService,
   processAnalysisImmediately: false,
+  settingsService: createSettingsService({
+    environment: process.env,
+    envPath: settingsEnvPath
+  }),
   storageRoot: process.env["MUSIC_STORAGE_PATH"] ?? join(tmpdir(), "analyze-music-work")
 });
 
