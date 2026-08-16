@@ -55,7 +55,6 @@ button {
   margin: 28px 0;
   background: linear-gradient(#665d48, transparent 88%);
 }
-.rail-label,
 .rail-foot {
   margin: 0;
   color: #9e998c;
@@ -64,6 +63,50 @@ button {
   line-height: 1.6;
   text-align: center;
   writing-mode: vertical-rl;
+}
+.rail-nav {
+  display: grid;
+  gap: 9px;
+  width: 100%;
+  margin-top: 28px;
+}
+.rail-nav-button {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  min-height: 72px;
+  padding: 10px 4px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: #77766c;
+  font-size: 9px;
+  text-align: center;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+.rail-nav-button span {
+  color: #5e5a4e;
+  font-family: Georgia, serif;
+  font-size: 11px;
+}
+.rail-nav-button strong {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  writing-mode: vertical-rl;
+  justify-self: center;
+}
+.rail-nav-button:hover,
+.rail-nav-button.is-active {
+  border-left-color: #c79e5b;
+  background: rgb(205 158 83 / 9%);
+  color: #d9c392;
+}
+.rail-nav-button.is-active span {
+  color: #c79e5b;
 }
 .rail-foot {
   margin-top: 24px;
@@ -263,6 +306,15 @@ h2 {
   border: 1px solid #5e594c;
   background: transparent;
   color: #d6d0c2;
+}
+.source-file-button {
+  width: 100%;
+  padding: 14px;
+  border: 1px dashed #947748;
+  cursor: pointer;
+}
+.source-file-button:hover {
+  background: rgb(205 158 83 / 9%);
 }
 .visually-hidden {
   position: absolute;
@@ -610,6 +662,101 @@ h2 {
 .edit-field {
   margin-top: 24px;
 }
+.settings-loading {
+  margin: 36px 0;
+  color: #a99b7d;
+  font-size: 13px;
+}
+.settings-page {
+  display: grid;
+  gap: 28px;
+  max-width: 1080px;
+  padding: 34px 0 10px;
+}
+.settings-intro {
+  max-width: 66ch;
+}
+.settings-intro > p:last-child {
+  margin: 15px 0 0;
+  color: #aaa398;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.settings-form {
+  display: grid;
+  gap: 16px;
+}
+.settings-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 17px 22px;
+  padding: 24px;
+  border: 1px solid #393a34;
+  background: linear-gradient(125deg, rgb(205 158 83 / 8%), transparent 48%), #1a1b18;
+}
+.settings-card-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #34352f;
+}
+.settings-card-head h3 {
+  margin: 0;
+  color: #eee4d4;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 24px;
+  font-weight: 500;
+}
+.settings-field {
+  display: grid;
+  gap: 8px;
+  color: #948f82;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.settings-field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #46463e;
+  border-radius: 0;
+  outline: 0;
+  background: #20211d;
+  color: #eee4d4;
+  padding: 0 12px;
+  letter-spacing: 0;
+}
+.settings-field input:focus {
+  border-color: #c49b55;
+  box-shadow: inset 0 -1px #c49b55;
+}
+.settings-field input::placeholder {
+  color: #706e64;
+}
+.setting-badge {
+  padding: 5px 8px;
+  border: 1px solid #744a3d;
+  color: #db927d;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.setting-badge.is-ready {
+  border-color: #4f6949;
+  color: #aabe7d;
+}
+.settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 4px;
+}
+.settings-actions p {
+  margin: 0;
+  color: #878277;
+  font-size: 11px;
+}
 @media (max-width: 1120px) {
   .workstation {
     grid-template-columns: 66px minmax(0, 1fr);
@@ -622,6 +769,9 @@ h2 {
   .table-labels > :nth-child(6),
   .table-labels > :nth-child(8) {
     display: none;
+  }
+  .rail-nav-button strong {
+    font-size: 9px;
   }
 }
 @media (max-width: 760px) {
@@ -659,8 +809,16 @@ h2 {
     padding: 22px 18px;
   }
   .inspector dl,
-  .analysis-copy {
+  .analysis-copy,
+  .settings-card {
     grid-template-columns: 1fr;
+  }
+  .settings-card-head {
+    grid-column: 1;
+  }
+  .settings-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .masthead {
     align-items: flex-start;

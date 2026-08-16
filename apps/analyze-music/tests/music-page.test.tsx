@@ -92,6 +92,60 @@ beforeAll(async () => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/settings") {
+      response.end(
+        JSON.stringify({
+          ai: {
+            apiKeyConfigured: true,
+            apiKeySuffix: "...secret",
+            baseUrl: "https://dashscope.example/v1",
+            model: "qwen-test"
+          },
+          feishu: {
+            appId: "cli_test",
+            appIdConfigured: true,
+            appSecretConfigured: true,
+            appSecretSuffix: "...secret",
+            appToken: "",
+            appTokenConfigured: false,
+            tableId: "",
+            tableIdConfigured: false
+          }
+        })
+      );
+      return;
+    }
+
+    if (request.method === "PATCH" && url.pathname === "/api/settings") {
+      response.end(
+        JSON.stringify({
+          ai: {
+            apiKeyConfigured: true,
+            apiKeySuffix: "...secret",
+            baseUrl: "https://dashscope.example/v1",
+            model: "qwen-updated"
+          },
+          feishu: {
+            appId: "cli_test",
+            appIdConfigured: true,
+            appSecretConfigured: true,
+            appSecretSuffix: "...secret",
+            appToken: "",
+            appTokenConfigured: false,
+            tableId: "",
+            tableIdConfigured: false
+          }
+        })
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/import") {
+      response.statusCode = 201;
+      response.end(JSON.stringify({ kind: "IMPORTED", trackId: "track-source" }));
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/api/feishu/export") {
       response.statusCode = 201;
       response.end(
@@ -209,6 +263,8 @@ afterAll(async () => {
 
 afterEach(() => {
   cleanup();
+  delete window.musicDesktop;
+  vi.unstubAllGlobals();
   receivedRequests.length = 0;
   musicQueries.length = 0;
 });
@@ -261,6 +317,55 @@ describe("music management page", () => {
 
     expect(await screen.findByText("已存在：该音乐的内容哈希已在资料库中。")).toBeTruthy();
     expect(screen.getByLabelText("导入进度")).toBeTruthy();
+  });
+
+  it("switches to system settings and saves the model configuration", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+
+    await user.click(screen.getByRole("button", { name: "系统设置" }));
+    expect(await screen.findByRole("heading", { name: "系统设置" })).toBeTruthy();
+    expect(await screen.findByDisplayValue("qwen-test")).toBeTruthy();
+
+    const model = screen.getByLabelText("AI 模型名称");
+    await user.clear(model);
+    await user.type(model, "qwen-updated");
+    await user.click(screen.getByRole("button", { name: "保存系统设置" }));
+
+    expect(
+      await screen.findByText("系统设置已保存，AI 服务将在下次启动时使用新配置。")
+    ).toBeTruthy();
+    expect(requestCount("/api/settings")).toBe(2);
+  });
+
+  it("uses the Electron file bridge for direct source imports", async () => {
+    const user = userEvent.setup();
+    const selectFiles = vi
+      .fn()
+      .mockResolvedValue([{ name: "remember-me.mp3", path: "/music/remember-me.mp3", size: 1024 }]);
+    const desktopBridge = {
+      isAvailable: true,
+      selectFiles,
+      selectFolder: vi.fn().mockResolvedValue([]),
+      toggleDevTools: vi.fn()
+    };
+    Object.defineProperty(window, "musicDesktop", {
+      configurable: true,
+      value: desktopBridge
+    });
+    expect(window.musicDesktop?.isAvailable).toBe(true);
+
+    await renderApp();
+    if (!screen.queryByRole("region", { name: "导入音乐面板" })) {
+      await user.click(screen.getByRole("button", { name: "导入音乐" }));
+    }
+    await user.click(screen.getByRole("button", { name: /选择本地音频文件/ }));
+
+    await waitFor(() => expect(requestCount("/api/import")).toBe(1));
+    expect(selectFiles).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText("已记录源文件并提交分析，源文件不会被复制或删除。")
+    ).toBeTruthy();
   });
 
   it("requests music one page at a time", async () => {

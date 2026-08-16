@@ -8,7 +8,13 @@ import {
   useQueryClient
 } from "@tanstack/react-query";
 
-import { MusicApi, type ImportSessionSnapshot, type MusicFilters, type MusicTrack } from "./api";
+import {
+  MusicApi,
+  type DesktopFileReference,
+  type ImportSessionSnapshot,
+  type MusicFilters,
+  type MusicTrack
+} from "./api";
 import { useInterfaceStore } from "./store";
 
 const emotionOptions = [
@@ -50,6 +56,7 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [exportedLibraryUrl, setExportedLibraryUrl] = useState<string | null>(null);
   const [importProgress, setImportProgress] = useState<ImportSessionSnapshot | null>(null);
+  const [activeView, setActiveView] = useState<"music" | "settings">("music");
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const selectedTrackId = useInterfaceStore((state) => state.selectedTrackId);
   const setSelectedTrackId = useInterfaceStore((state) => state.setSelectedTrackId);
@@ -151,14 +158,21 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
       await refresh();
     }
   });
+  const desktopAvailable =
+    typeof window !== "undefined" && Boolean(window.musicDesktop?.isAvailable);
   const importMutation = useMutation({
-    mutationFn: (files: File[]) => api.importFiles(files, setImportProgress),
+    mutationFn: (files: File[] | DesktopFileReference[]) =>
+      files.length > 0 && isDesktopFileReference(files[0])
+        ? api.importSourcePaths(files as DesktopFileReference[], setImportProgress)
+        : api.importFiles(files as File[], setImportProgress),
     onError: (error) => setNotice(error instanceof Error ? error.message : "导入失败"),
     onSuccess: async (result) => {
       setNotice(
         result.counts.duplicate > 0 && result.counts.imported === 0
           ? "已存在：该音乐的内容哈希已在资料库中。"
-          : "已导入并提交分析，完成后会自动清理音频文件。"
+          : desktopAvailable
+            ? "已记录源文件并提交分析，源文件不会被复制或删除。"
+            : "已导入并提交分析，完成后会自动清理音频文件。"
       );
       await refresh();
     }
@@ -176,6 +190,14 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
     }
     importMutation.mutate(audioFiles);
   };
+  const importSourceFiles = async (files: DesktopFileReference[]) => {
+    const audioFiles = files.filter((file) => isSupportedAudioFilename(file.name));
+    if (audioFiles.length === 0) {
+      setNotice("未找到可导入的音频文件。支持 MP3、WAV、FLAC、M4A、AAC、OGG。");
+      return;
+    }
+    importMutation.mutate(audioFiles);
+  };
 
   return (
     <main className="workstation">
@@ -183,12 +205,29 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
         <div className="mark" aria-hidden="true">
           AM
         </div>
+        <nav className="rail-nav" aria-label="工作区菜单">
+          <button
+            aria-label="音乐分析"
+            className={activeView === "music" ? "rail-nav-button is-active" : "rail-nav-button"}
+            type="button"
+            aria-current={activeView === "music" ? "page" : undefined}
+            onClick={() => setActiveView("music")}
+          >
+            <span>01</span>
+            <strong>音乐分析</strong>
+          </button>
+          <button
+            aria-label="系统设置"
+            className={activeView === "settings" ? "rail-nav-button is-active" : "rail-nav-button"}
+            type="button"
+            aria-current={activeView === "settings" ? "page" : undefined}
+            onClick={() => setActiveView("settings")}
+          >
+            <span>02</span>
+            <strong>系统设置</strong>
+          </button>
+        </nav>
         <div className="rail-line" />
-        <p className="rail-label">
-          CUE
-          <br />
-          LIBRARY
-        </p>
         <p className="rail-foot">
           LOCAL
           <br />
@@ -200,7 +239,7 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
         <header className="masthead">
           <div>
             <p className="overline">Cinematic audio catalog / local workstation</p>
-            <h1>音乐管理</h1>
+            <h1>{activeView === "music" ? "音乐管理" : "系统设置"}</h1>
           </div>
           <div className="system-light">
             <span />
@@ -208,309 +247,536 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
           </div>
         </header>
 
-        <section className="control-deck" aria-label="音乐筛选和导入">
-          <label className="search-field">
-            <span>检索</span>
-            <input
-              aria-label="搜索音乐"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="名称、文件名、情绪…"
-            />
-          </label>
-          <label className="select-field">
-            <span>情绪</span>
-            <select
-              aria-label="按情绪筛选"
-              value={emotion}
-              onChange={(event) => setEmotion(event.target.value)}
-            >
-              <option value="">全部</option>
-              {emotionOptions.map((option) => (
-                <option key={option} value={option}>
-                  {toChinese(option)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="select-field">
-            <span>叙事功能</span>
-            <select
-              aria-label="按叙事筛选"
-              value={narrative}
-              onChange={(event) => setNarrative(event.target.value)}
-            >
-              <option value="">全部</option>
-              {narrativeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {toChinese(option)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="select-field">
-            <span>电影风格</span>
-            <select
-              aria-label="按电影风格筛选"
-              value={cinematicStyle}
-              onChange={(event) => setCinematicStyle(event.target.value)}
-            >
-              <option value="">全部</option>
-              {cinematicStyleOptions.map((option) => (
-                <option key={option} value={option}>
-                  {toChinese(option)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="select-field">
-            <span>分析状态</span>
-            <select
-              aria-label="按分析状态筛选"
-              value={status}
-              onChange={(event) => setStatus(event.target.value)}
-            >
-              <option value="">全部</option>
-              <option value="NONE">未分析</option>
-              <option value="QUEUED">排队中</option>
-              <option value="COMPLETED">已完成</option>
-              <option value="FAILED">失败</option>
-            </select>
-          </label>
-          <div className="control-actions">
-            <button
-              className="outline-button"
-              disabled={tracks.length === 0 || batchAnalyzeMutation.isPending}
-              type="button"
-              onClick={() => batchAnalyzeMutation.mutate()}
-            >
-              批量分析
-            </button>
-            <button
-              className="outline-button"
-              disabled={
-                feishuExportMutation.isPending ||
-                (!feishuQuery.data?.configured && !feishuQuery.data?.canCreate)
-              }
-              title={
-                feishuQuery.data?.configured
-                  ? "将变更的音乐增量导出到飞书"
-                  : feishuQuery.data?.canCreate
-                    ? "首次导出会创建飞书多维表格"
-                    : "请先在本地 .env 配置 FEISHU_APP_ID 和 FEISHU_APP_SECRET"
-              }
-              type="button"
-              onClick={() => feishuExportMutation.mutate()}
-            >
-              导出飞书
-            </button>
-            <button
-              className="solid-button"
-              type="button"
-              onClick={() => setImportPanelOpen(!importPanelOpen)}
-            >
-              导入音乐
-            </button>
-          </div>
-        </section>
-
-        <p className="feishu-state">
-          飞书：
-          {feishuQuery.data?.configured
-            ? `已连接 · 已同步 ${feishuQuery.data.synced} 首${feishuQuery.data.lastSyncedAt ? ` · 最近 ${formatDate(feishuQuery.data.lastSyncedAt)}` : ""}`
-            : feishuQuery.data?.canCreate
-              ? "已配置凭证，首次导出将创建多维表格"
-              : "未配置（本地资料库仍可正常使用）"}
-          {libraryUrl ? (
-            <a href={libraryUrl} rel="noreferrer" target="_blank">
-              打开飞书多维表格
-            </a>
-          ) : null}
-        </p>
-
-        <section className="advanced-filters" aria-label="剪辑筛选">
-          <span>剪辑筛选</span>
-          <label className="select-field">
-            <span>最低电影感</span>
-            <select
-              aria-label="最低电影感"
-              value={minCinematicScore}
-              onChange={(event) => setMinCinematicScore(event.target.value)}
-            >
-              <option value="">不限</option>
-              {scoreThresholds.map((score) => (
-                <option key={score} value={score}>
-                  {score}+
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="select-field">
-            <span>最低对白友好</span>
-            <select
-              aria-label="最低对白友好"
-              value={minDialogueFriendly}
-              onChange={(event) => setMinDialogueFriendly(event.target.value)}
-            >
-              <option value="">不限</option>
-              {scoreThresholds.map((score) => (
-                <option key={score} value={score}>
-                  {score}+
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="select-field">
-            <span>发展轨迹</span>
-            <select
-              aria-label="按发展轨迹筛选"
-              value={trajectory}
-              onChange={(event) => setTrajectory(event.target.value)}
-            >
-              <option value="">全部</option>
-              {trajectoryOptions.map((option) => (
-                <option key={option} value={option}>
-                  {toChinese(option)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </section>
-
-        {importPanelOpen ? (
-          <section className="import-panel" aria-label="导入音乐面板">
-            <div>
-              <p className="overline">Managed import</p>
-              <h2>将声音带入资料库</h2>
-              <p>
-                支持 MP3、WAV、FLAC、M4A、AAC、OGG。系统仅在分析期间临时保存文件，完成后自动清理。
-              </p>
-            </div>
-            <div className="import-actions">
-              <label className="file-drop">
-                <input
-                  aria-label="导入音频"
-                  accept={audioAccept}
-                  multiple
-                  type="file"
-                  onChange={(event) => {
-                    importFiles(event.currentTarget.files);
-                    event.currentTarget.value = "";
-                  }}
-                />
-                <span>选择音频文件</span>
-                <small>拖入或选择一个或多个文件</small>
-              </label>
-              <input
-                accept={audioAccept}
-                aria-label="导入音频文件夹"
-                className="visually-hidden"
-                multiple
-                ref={(node) => {
-                  folderInputRef.current = node;
-                  if (node) {
-                    node.setAttribute("directory", "");
-                    node.setAttribute("webkitdirectory", "");
-                  }
-                }}
-                type="file"
-                onChange={(event) => {
-                  importFiles(event.currentTarget.files);
-                  event.currentTarget.value = "";
-                }}
-              />
-              <button
-                className="folder-button"
-                type="button"
-                onClick={() => folderInputRef.current?.click()}
-              >
-                选择文件夹
-              </button>
-            </div>
-          </section>
-        ) : null}
-
         {notice ? (
           <p className="notice" role="status">
             {notice}
           </p>
         ) : null}
-        {importProgress ? <ImportProgress snapshot={importProgress} /> : null}
 
-        <section className="library" aria-label="音乐资料库">
-          <div className="library-head">
-            <span>资料库</span>
-            <strong>
-              {musicQuery.data?.total ?? 0} 个音轨 · 每页 {pageSize} 首
-            </strong>
-          </div>
-          {musicQuery.isError ? (
-            <p className="error-message">{errorMessage(musicQuery.error)}</p>
-          ) : null}
-          <div className="track-scroll">
-            <div className="track-table" role="table" aria-label="音乐列表">
-              <div className="track-row table-labels" role="row">
-                <span>音轨</span>
-                <span>时长</span>
-                <span>速度 / 调性</span>
-                <span>情绪 / 叙事</span>
-                <span>电影感</span>
-                <span>发展轨迹</span>
-                <span>状态</span>
-                <span>操作</span>
-              </div>
-              {tracks.map((track, index) => (
-                <TrackRow
-                  key={track.id}
-                  deleting={deleteMutation.isPending}
-                  index={(page - 1) * pageSize + index + 1}
-                  onAnalyze={() => analyzeMutation.mutate(track.id)}
-                  onDelete={() => {
-                    if (window.confirm(`确定删除“${track.title}”吗？此操作会同时删除关联数据。`)) {
-                      deleteMutation.mutate(track.id);
-                    }
-                  }}
-                  onRetry={
-                    track.analysisJobId
-                      ? () => retryMutation.mutate(track.analysisJobId!)
-                      : undefined
-                  }
-                  onSelect={() => setSelectedTrackId(track.id)}
-                  retrying={retryMutation.isPending}
-                  track={track}
+        {activeView === "settings" ? (
+          <SystemSettings api={api} onNotice={setNotice} />
+        ) : (
+          <>
+            <section className="control-deck" aria-label="音乐筛选和导入">
+              <label className="search-field">
+                <span>检索</span>
+                <input
+                  aria-label="搜索音乐"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="名称、文件名、情绪…"
                 />
-              ))}
-              {!musicQuery.isLoading && tracks.length === 0 ? (
-                <p className="empty-state">尚未导入音乐。选择文件后，资料库会在这里生长。</p>
+              </label>
+              <label className="select-field">
+                <span>情绪</span>
+                <select
+                  aria-label="按情绪筛选"
+                  value={emotion}
+                  onChange={(event) => setEmotion(event.target.value)}
+                >
+                  <option value="">全部</option>
+                  {emotionOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {toChinese(option)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="select-field">
+                <span>叙事功能</span>
+                <select
+                  aria-label="按叙事筛选"
+                  value={narrative}
+                  onChange={(event) => setNarrative(event.target.value)}
+                >
+                  <option value="">全部</option>
+                  {narrativeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {toChinese(option)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="select-field">
+                <span>电影风格</span>
+                <select
+                  aria-label="按电影风格筛选"
+                  value={cinematicStyle}
+                  onChange={(event) => setCinematicStyle(event.target.value)}
+                >
+                  <option value="">全部</option>
+                  {cinematicStyleOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {toChinese(option)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="select-field">
+                <span>分析状态</span>
+                <select
+                  aria-label="按分析状态筛选"
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value)}
+                >
+                  <option value="">全部</option>
+                  <option value="NONE">未分析</option>
+                  <option value="QUEUED">排队中</option>
+                  <option value="COMPLETED">已完成</option>
+                  <option value="FAILED">失败</option>
+                </select>
+              </label>
+              <div className="control-actions">
+                <button
+                  className="outline-button"
+                  disabled={tracks.length === 0 || batchAnalyzeMutation.isPending}
+                  type="button"
+                  onClick={() => batchAnalyzeMutation.mutate()}
+                >
+                  批量分析
+                </button>
+                <button
+                  className="outline-button"
+                  disabled={
+                    feishuExportMutation.isPending ||
+                    (!feishuQuery.data?.configured && !feishuQuery.data?.canCreate)
+                  }
+                  title={
+                    feishuQuery.data?.configured
+                      ? "将变更的音乐增量导出到飞书"
+                      : feishuQuery.data?.canCreate
+                        ? "首次导出会创建飞书多维表格"
+                        : "请先在本地 .env 配置 FEISHU_APP_ID 和 FEISHU_APP_SECRET"
+                  }
+                  type="button"
+                  onClick={() => feishuExportMutation.mutate()}
+                >
+                  导出飞书
+                </button>
+                <button
+                  className="solid-button"
+                  type="button"
+                  onClick={() => setImportPanelOpen(!importPanelOpen)}
+                >
+                  导入音乐
+                </button>
+              </div>
+            </section>
+
+            <p className="feishu-state">
+              飞书：
+              {feishuQuery.data?.configured
+                ? `已连接 · 已同步 ${feishuQuery.data.synced} 首${feishuQuery.data.lastSyncedAt ? ` · 最近 ${formatDate(feishuQuery.data.lastSyncedAt)}` : ""}`
+                : feishuQuery.data?.canCreate
+                  ? "已配置凭证，首次导出将创建多维表格"
+                  : "未配置（本地资料库仍可正常使用）"}
+              {libraryUrl ? (
+                <a href={libraryUrl} rel="noreferrer" target="_blank">
+                  打开飞书多维表格
+                </a>
               ) : null}
-            </div>
-          </div>
-          <nav className="pagination" aria-label="音乐分页">
-            <span>
-              第 {page} / {totalPages} 页
-            </span>
-            <div>
-              <button
-                disabled={page === 1}
-                type="button"
-                onClick={() => setPage((value) => value - 1)}
-              >
-                上一页
-              </button>
-              <button
-                disabled={page >= totalPages}
-                type="button"
-                onClick={() => setPage((value) => value + 1)}
-              >
-                下一页
-              </button>
-            </div>
-          </nav>
-        </section>
+            </p>
+
+            <section className="advanced-filters" aria-label="剪辑筛选">
+              <span>剪辑筛选</span>
+              <label className="select-field">
+                <span>最低电影感</span>
+                <select
+                  aria-label="最低电影感"
+                  value={minCinematicScore}
+                  onChange={(event) => setMinCinematicScore(event.target.value)}
+                >
+                  <option value="">不限</option>
+                  {scoreThresholds.map((score) => (
+                    <option key={score} value={score}>
+                      {score}+
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="select-field">
+                <span>最低对白友好</span>
+                <select
+                  aria-label="最低对白友好"
+                  value={minDialogueFriendly}
+                  onChange={(event) => setMinDialogueFriendly(event.target.value)}
+                >
+                  <option value="">不限</option>
+                  {scoreThresholds.map((score) => (
+                    <option key={score} value={score}>
+                      {score}+
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="select-field">
+                <span>发展轨迹</span>
+                <select
+                  aria-label="按发展轨迹筛选"
+                  value={trajectory}
+                  onChange={(event) => setTrajectory(event.target.value)}
+                >
+                  <option value="">全部</option>
+                  {trajectoryOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {toChinese(option)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </section>
+
+            {importPanelOpen ? (
+              <section className="import-panel" aria-label="导入音乐面板">
+                <div>
+                  <p className="overline">Managed import</p>
+                  <h2>将声音带入资料库</h2>
+                  <p>
+                    支持 MP3、WAV、FLAC、M4A、AAC、OGG。
+                    {desktopAvailable
+                      ? "桌面模式直接读取源文件，不上传、不复制，也不会删除原文件。"
+                      : "浏览器模式会临时保存上传副本，分析完成后自动清理。"}
+                  </p>
+                </div>
+                <div className="import-actions">
+                  {desktopAvailable ? (
+                    <>
+                      <button
+                        className="file-drop source-file-button"
+                        type="button"
+                        onClick={() =>
+                          void window.musicDesktop?.selectFiles().then(importSourceFiles)
+                        }
+                      >
+                        <span>选择本地音频文件</span>
+                        <small>Electron 直接读取源路径</small>
+                      </button>
+                      <button
+                        className="folder-button"
+                        type="button"
+                        onClick={() =>
+                          void window.musicDesktop?.selectFolder().then(importSourceFiles)
+                        }
+                      >
+                        选择本地文件夹
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <label className="file-drop">
+                        <input
+                          aria-label="导入音频"
+                          accept={audioAccept}
+                          multiple
+                          type="file"
+                          onChange={(event) => {
+                            importFiles(event.currentTarget.files);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                        <span>选择音频文件</span>
+                        <small>拖入或选择一个或多个文件</small>
+                      </label>
+                      <input
+                        accept={audioAccept}
+                        aria-label="导入音频文件夹"
+                        className="visually-hidden"
+                        multiple
+                        ref={(node) => {
+                          folderInputRef.current = node;
+                          if (node) {
+                            node.setAttribute("directory", "");
+                            node.setAttribute("webkitdirectory", "");
+                          }
+                        }}
+                        type="file"
+                        onChange={(event) => {
+                          importFiles(event.currentTarget.files);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <button
+                        className="folder-button"
+                        type="button"
+                        onClick={() => folderInputRef.current?.click()}
+                      >
+                        选择文件夹
+                      </button>
+                    </>
+                  )}
+                </div>
+              </section>
+            ) : null}
+
+            {importProgress ? <ImportProgress snapshot={importProgress} /> : null}
+
+            <section className="library" aria-label="音乐资料库">
+              <div className="library-head">
+                <span>资料库</span>
+                <strong>
+                  {musicQuery.data?.total ?? 0} 个音轨 · 每页 {pageSize} 首
+                </strong>
+              </div>
+              {musicQuery.isError ? (
+                <p className="error-message">{errorMessage(musicQuery.error)}</p>
+              ) : null}
+              <div className="track-scroll">
+                <div className="track-table" role="table" aria-label="音乐列表">
+                  <div className="track-row table-labels" role="row">
+                    <span>音轨</span>
+                    <span>时长</span>
+                    <span>速度 / 调性</span>
+                    <span>情绪 / 叙事</span>
+                    <span>电影感</span>
+                    <span>发展轨迹</span>
+                    <span>状态</span>
+                    <span>操作</span>
+                  </div>
+                  {tracks.map((track, index) => (
+                    <TrackRow
+                      key={track.id}
+                      deleting={deleteMutation.isPending}
+                      index={(page - 1) * pageSize + index + 1}
+                      onAnalyze={() => analyzeMutation.mutate(track.id)}
+                      onDelete={() => {
+                        if (
+                          window.confirm(`确定删除“${track.title}”吗？此操作会同时删除关联数据。`)
+                        ) {
+                          deleteMutation.mutate(track.id);
+                        }
+                      }}
+                      onRetry={
+                        track.analysisJobId
+                          ? () => retryMutation.mutate(track.analysisJobId!)
+                          : undefined
+                      }
+                      onSelect={() => setSelectedTrackId(track.id)}
+                      retrying={retryMutation.isPending}
+                      track={track}
+                    />
+                  ))}
+                  {!musicQuery.isLoading && tracks.length === 0 ? (
+                    <p className="empty-state">尚未导入音乐。选择文件后，资料库会在这里生长。</p>
+                  ) : null}
+                </div>
+              </div>
+              <nav className="pagination" aria-label="音乐分页">
+                <span>
+                  第 {page} / {totalPages} 页
+                </span>
+                <div>
+                  <button
+                    disabled={page === 1}
+                    type="button"
+                    onClick={() => setPage((value) => value - 1)}
+                  >
+                    上一页
+                  </button>
+                  <button
+                    disabled={page >= totalPages}
+                    type="button"
+                    onClick={() => setPage((value) => value + 1)}
+                  >
+                    下一页
+                  </button>
+                </div>
+              </nav>
+            </section>
+          </>
+        )}
       </section>
 
-      <TrackInspector api={api} onClose={() => setSelectedTrackId(null)} track={selectedTrack} />
+      {activeView === "music" ? (
+        <TrackInspector api={api} onClose={() => setSelectedTrackId(null)} track={selectedTrack} />
+      ) : null}
     </main>
+  );
+}
+
+function SystemSettings({ api, onNotice }: { api: MusicApi; onNotice: (notice: string) => void }) {
+  const settingsQuery = useQuery({
+    queryFn: () => api.getSettings(),
+    queryKey: ["settings"]
+  });
+  const [form, setForm] = useState({
+    apiKey: "",
+    appId: "",
+    appSecret: "",
+    appToken: "",
+    baseUrl: "",
+    model: "",
+    tableId: ""
+  });
+  useEffect(() => {
+    const settings = settingsQuery.data;
+    if (!settings) return;
+    setForm((current) => ({
+      ...current,
+      appId: settings.feishu.appId,
+      appToken: settings.feishu.appToken,
+      baseUrl: settings.ai.baseUrl,
+      model: settings.ai.model,
+      tableId: settings.feishu.tableId
+    }));
+  }, [settingsQuery.data]);
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      api.updateSettings({
+        ai: { apiKey: form.apiKey, baseUrl: form.baseUrl, model: form.model },
+        feishu: {
+          appId: form.appId,
+          appSecret: form.appSecret,
+          appToken: form.appToken,
+          tableId: form.tableId
+        }
+      }),
+    onError: (error) => onNotice(error instanceof Error ? error.message : "系统设置保存失败"),
+    onSuccess: () => {
+      onNotice("系统设置已保存，AI 服务将在下次启动时使用新配置。");
+    }
+  });
+
+  if (settingsQuery.isLoading) {
+    return <p className="settings-loading">正在读取本地配置…</p>;
+  }
+  if (settingsQuery.isError || !settingsQuery.data) {
+    return <p className="error-message">{errorMessage(settingsQuery.error)}</p>;
+  }
+  const settings = settingsQuery.data;
+  return (
+    <section className="settings-page" aria-label="系统设置面板">
+      <div className="settings-intro">
+        <p className="overline">Local configuration / .env</p>
+        <h2>把分析工作站接上你的模型</h2>
+        <p>
+          配置保存在本机 `.env`，API Key
+          和飞书密钥只会以脱敏状态显示。清空密钥输入框会保留已保存的密钥。
+        </p>
+      </div>
+      <form
+        className="settings-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          saveMutation.mutate();
+        }}
+      >
+        <section className="settings-card" aria-label="AI 模型配置">
+          <div className="settings-card-head">
+            <div>
+              <p className="overline">01 / Intelligence</p>
+              <h3>AI 模型</h3>
+            </div>
+            <SettingBadge configured={settings.ai.apiKeyConfigured} />
+          </div>
+          <label className="settings-field">
+            <span>AI API Key</span>
+            <input
+              aria-label="AI API Key"
+              placeholder={
+                settings.ai.apiKeySuffix ? `已配置 ${settings.ai.apiKeySuffix}` : "请输入 API Key"
+              }
+              type="password"
+              value={form.apiKey}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, apiKey: event.target.value }))
+              }
+            />
+          </label>
+          <label className="settings-field">
+            <span>API 基础地址</span>
+            <input
+              aria-label="AI API 基础地址"
+              value={form.baseUrl}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, baseUrl: event.target.value }))
+              }
+            />
+          </label>
+          <label className="settings-field">
+            <span>模型名称</span>
+            <input
+              aria-label="AI 模型名称"
+              value={form.model}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, model: event.target.value }))
+              }
+            />
+          </label>
+        </section>
+
+        <section className="settings-card" aria-label="飞书授权配置">
+          <div className="settings-card-head">
+            <div>
+              <p className="overline">02 / Export</p>
+              <h3>飞书授权</h3>
+            </div>
+            <SettingBadge
+              configured={settings.feishu.appIdConfigured && settings.feishu.appSecretConfigured}
+            />
+          </div>
+          <label className="settings-field">
+            <span>App ID</span>
+            <input
+              aria-label="飞书 App ID"
+              value={form.appId}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, appId: event.target.value }))
+              }
+            />
+          </label>
+          <label className="settings-field">
+            <span>App Secret</span>
+            <input
+              aria-label="飞书 App Secret"
+              placeholder={
+                settings.feishu.appSecretSuffix
+                  ? `已配置 ${settings.feishu.appSecretSuffix}`
+                  : "请输入 App Secret"
+              }
+              type="password"
+              value={form.appSecret}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, appSecret: event.target.value }))
+              }
+            />
+          </label>
+          <label className="settings-field">
+            <span>App Token（可选）</span>
+            <input
+              aria-label="飞书 App Token"
+              value={form.appToken}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, appToken: event.target.value }))
+              }
+            />
+          </label>
+          <label className="settings-field">
+            <span>Table ID（可选）</span>
+            <input
+              aria-label="飞书 Table ID"
+              value={form.tableId}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, tableId: event.target.value }))
+              }
+            />
+          </label>
+        </section>
+        <div className="settings-actions">
+          <p>保存后重启 Electron，AI 分析服务会加载新配置。</p>
+          <button className="solid-button" disabled={saveMutation.isPending} type="submit">
+            保存系统设置
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function SettingBadge({ configured }: { configured: boolean }) {
+  return (
+    <span className={configured ? "setting-badge is-ready" : "setting-badge"}>
+      {configured ? "已配置" : "待配置"}
+    </span>
   );
 }
 
@@ -1093,6 +1359,16 @@ const trajectoryOptions = [
 const scoreThresholds = [5, 7, 8, 9];
 
 function isSupportedAudioFile(file: File) {
-  const extension = file.name.split(".").pop()?.toLowerCase();
+  return isSupportedAudioFilename(file.name);
+}
+
+function isSupportedAudioFilename(name: string) {
+  const extension = name.split(".").pop()?.toLowerCase();
   return extension !== undefined && supportedAudioExtensions.has(extension);
+}
+
+function isDesktopFileReference(
+  file: File | DesktopFileReference | undefined
+): file is DesktopFileReference {
+  return Boolean(file && "path" in file && typeof file.path === "string");
 }

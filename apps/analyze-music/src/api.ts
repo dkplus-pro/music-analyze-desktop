@@ -111,6 +111,36 @@ export interface ImportSessionSnapshot {
   status: string;
 }
 
+export interface DesktopFileReference {
+  name: string;
+  path: string;
+  size: number;
+}
+
+export interface SettingsView {
+  ai: {
+    apiKeyConfigured: boolean;
+    apiKeySuffix: string | null;
+    baseUrl: string;
+    model: string;
+  };
+  feishu: {
+    appId: string;
+    appIdConfigured: boolean;
+    appSecretConfigured: boolean;
+    appSecretSuffix: string | null;
+    appToken: string;
+    appTokenConfigured: boolean;
+    tableId: string;
+    tableIdConfigured: boolean;
+  };
+}
+
+export interface SettingsPatch {
+  ai?: { apiKey?: string; baseUrl?: string; model?: string };
+  feishu?: { appId?: string; appSecret?: string; appToken?: string; tableId?: string };
+}
+
 export interface MusicFilters {
   cinematicStyle: string;
   minCinematicScore: string;
@@ -181,8 +211,84 @@ export class MusicApi {
     }
   }
 
+  async importSourcePaths(
+    files: DesktopFileReference[],
+    onProgress: (snapshot: ImportSessionSnapshot) => void
+  ) {
+    const id = `desktop-${Date.now()}`;
+    const statuses: Array<{
+      clientId: string;
+      errorMessage: string | null;
+      name: string;
+      status: string;
+    }> = files.map((file, index) => ({
+      clientId: `source-${index}`,
+      errorMessage: null,
+      name: file.name,
+      status: "PENDING"
+    }));
+    const snapshot = (): ImportSessionSnapshot => {
+      const imported = statuses.filter((file) => file.status === "IMPORTED").length;
+      const duplicate = statuses.filter((file) => file.status === "DUPLICATE").length;
+      const failed = statuses.filter((file) => file.status === "FAILED").length;
+      const completed = imported + duplicate + failed;
+      return {
+        counts: {
+          completed,
+          duplicate,
+          failed,
+          imported,
+          pending: statuses.length - completed,
+          total: statuses.length,
+          uploading: 0
+        },
+        files: statuses,
+        id,
+        status:
+          completed === statuses.length ? (failed ? "PARTIAL_FAILED" : "COMPLETED") : "IMPORTING"
+      };
+    };
+    onProgress(snapshot());
+    for (const [index, file] of files.entries()) {
+      statuses[index]!.status = "UPLOADING";
+      onProgress(snapshot());
+      try {
+        const result = await this.request<{ duplicateOf?: string; kind: "DUPLICATE" | "IMPORTED" }>(
+          "/import",
+          {
+            body: JSON.stringify({
+              originalFilename: file.name,
+              sourcePath: file.path,
+              storageMode: "LINKED_SOURCE"
+            }),
+            headers: { "content-type": "application/json" },
+            method: "POST"
+          }
+        );
+        statuses[index]!.status = result.kind;
+      } catch (error) {
+        statuses[index]!.errorMessage = error instanceof Error ? error.message : "导入失败";
+        statuses[index]!.status = "FAILED";
+      }
+      onProgress(snapshot());
+    }
+    return snapshot();
+  }
+
   async getImportSession(sessionId: string) {
     return this.request<ImportSessionSnapshot>(`/import-jobs/${sessionId}`);
+  }
+
+  async getSettings() {
+    return this.request<SettingsView>("/settings");
+  }
+
+  async updateSettings(patch: SettingsPatch) {
+    return this.request<SettingsView>("/settings", {
+      body: JSON.stringify(patch),
+      headers: { "content-type": "application/json" },
+      method: "PATCH"
+    });
   }
 
   async retry(jobId: string) {
