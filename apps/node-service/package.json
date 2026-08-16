@@ -1,0 +1,25 @@
+{
+  "name": "@analyze-music/node-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "pnpm turbo run build --filter=@analyze-music/node-service... && pnpm run start",
+    "lint": "eslint src tests --max-warnings=0",
+    "start": "node --env-file-if-exists=../../.env dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@analyze-music/contracts": "workspace:*",
+    "@analyze-music/database": "workspace:*",
+    "@analyze-music/music-domain": "workspace:*",
+    "@fastify/multipart": "^9.4.0",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.11.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2"
+  }
+}
