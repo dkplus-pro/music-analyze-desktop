@@ -30,7 +30,7 @@ describe("desktop runtime", () => {
     ).toEqual({
       adminDist: "/Applications/Analyze Music.app/Contents/Resources/admin",
       envPath: "/Users/test/Library/Application Support/Analyze Music/.env",
-      nodeServiceRoot: "/Applications/Analyze Music.app/Contents/Resources/node-service",
+      nodeServiceRoot: "/Users/test/Library/Application Support/Analyze Music/runtime/node-service",
       userDataRoot: "/Users/test/Library/Application Support/Analyze Music"
     });
   });

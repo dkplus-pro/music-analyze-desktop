@@ -24,7 +24,7 @@ export function desktopRuntimePaths({
     return {
       adminDist: join(resourcesPath, "admin"),
       envPath: join(userDataPath, ".env"),
-      nodeServiceRoot: join(resourcesPath, "node-service"),
+      nodeServiceRoot: join(userDataPath, "runtime/node-service"),
       userDataRoot: userDataPath
     };
   }

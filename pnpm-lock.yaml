@@ -130,6 +130,9 @@ importers:
 
   apps/desktop:
     devDependencies:
+      '@playwright/test':
+        specifier: 1.61.1
+        version: 1.61.1
       '@types/node':
         specifier: ^26.2.0
         version: 26.2.0

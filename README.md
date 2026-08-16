@@ -1,6 +1,6 @@
 # Music Analyze
 
-本地音乐资料库与 AI 电影感分析后台。导入音频后，系统会临时保留文件以提取元数据、以内容哈希去重并完成分析；任务无论成功或失败都会自动清理音频副本，只保留结构化分析结果。
+本地音乐资料库与 AI 电影感分析后台。浏览器模式会临时保留上传副本并在任务结束后清理；Electron 桌面模式直接读取本机源文件路径，只记录路径，不复制、不上传、不删除源文件。
 
 管理后台包括检索、结构化筛选、单文件或文件夹导入、导入会话 SSE 进度、异步批量分析、双列分析详情，以及人工主情绪覆盖。
 
@@ -25,12 +25,26 @@ pnpm run dev:music
 
 支持的导入格式：MP3、WAV、FLAC、M4A、AAC、OGG。结构化运行数据会写入 `apps/node-service/data/`（或 `.env` 指定的位置）并已被 Git 忽略；音频工作文件默认位于系统临时目录，任务结束即删除。
 
+## Electron 桌面应用
+
+桌面应用左侧提供“音乐分析”和“系统设置”两个入口。系统设置可编辑 AI 模型地址、模型名、API Key，以及飞书授权信息；敏感值只显示配置状态和尾部字符。开发启动、打包和 Electron 集成测试：
+
+```bash
+pnpm electron:dev
+pnpm electron:pack
+pnpm electron:test
+```
+
+`electron:pack` 的 macOS 产物位于 `apps/desktop/release/`。首次启动会从项目 `.env` 生成用户目录下的可编辑配置副本；请勿把真实凭证提交到 Git。桌面窗口按 `F12` 可打开/关闭 DevTools。
+
+Electron 集成测试会打开打包应用，使用 `tests/sample/10 希望.mp3` 完成一次真实分析，并校验请求使用 `LINKED_SOURCE`、源文件内容未变化且没有生成受管音频副本。测试需要 `.env` 中的百炼配置，或本机 `bl auth status` 已登录。
+
 ## 接口概览
 
-- `POST /api/import`：浏览器 multipart 音频上传；也保留 JSON `sourcePath` 导入，便于本地自动化。
+- `POST /api/import`：浏览器 multipart 音频上传；JSON `sourcePath` 配合 `storageMode: "LINKED_SOURCE"` 时直接关联绝对源路径，`MANAGED_COPY`（默认）仍使用受管副本。
 - `POST /api/import-sessions`、`POST /api/import-sessions/:id/manifest`、`POST /api/import-sessions/:id/files/:clientId`：受管批量导入；`GET /api/import-jobs/:id/events` 提供 SSE 进度。
 - `GET /api/music`：返回音轨、最新分析、有效主情绪和分析状态；支持 `search`、`primaryEmotion`、`status`、`narrative`、`cinematicStyle`、`minCinematicScore`、`minDialogueFriendly` 与 `trajectory`。
-- `POST /api/music/:id/analyze`、`POST /api/music/batch-analyze` 与 `POST /api/analysis-jobs/:id/retry`：提交单首、批量或重试分析。上传会自动提交分析；由于源音频会在任务结束后删除，失败任务需重新导入后再分析。
+- `POST /api/music/:id/analyze`、`POST /api/music/batch-analyze` 与 `POST /api/analysis-jobs/:id/retry`：提交单首、批量或重试分析。上传会自动提交分析；受管副本在任务结束后删除，链接源文件始终保留。
 - `GET /api/music/:id/audio` 与 `GET /api/music/:id/waveform` 在音频清理后返回 `410 Gone`；音乐详情保留结构化分析结果，不提供服务端试听。
 - `GET /api/feishu/status` 和 `POST /api/feishu/export`：查看飞书连接状态并一键导出。仅填写 `FEISHU_APP_ID`、`FEISHU_APP_SECRET` 时，首次导出会创建包含完整音乐字段的新库并保存非敏感的库/表 ID；同时填写 `FEISHU_APP_TOKEN`、`FEISHU_TABLE_ID` 可连接既有库。未配置时后台会清楚显示为未连接且不会发起外部请求。
 

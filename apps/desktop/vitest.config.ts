@@ -2,6 +2,6 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    exclude: ["runtime/**"]
+    exclude: ["release/**", "runtime/**", "runtime.stale-*/**", "tests/electron/**"]
   }
 });

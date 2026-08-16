@@ -12,8 +12,8 @@ interface BailianCliAnalyzerOptions {
 }
 
 export function createBailianCliAnalyzer({
-  command = process.env["BAILIAN_CLI_PATH"] ?? "bl",
-  model = process.env["BAILIAN_MODEL"] ?? "qwen3.5-omni-plus",
+  command = process.env["BAILIAN_CLI_PATH"] || "bl",
+  model = process.env["BAILIAN_MODEL"] || "qwen3.5-omni-plus",
   run = runCommand
 }: BailianCliAnalyzerOptions = {}): MusicAnalyzer {
   return {

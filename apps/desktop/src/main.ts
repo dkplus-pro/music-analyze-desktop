@@ -1,8 +1,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, readdir, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { access, copyFile, cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, dialog, ipcMain, session, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
 
 import { desktopRuntimePaths, isDevToolsShortcut } from "./runtime.js";
 
@@ -12,12 +13,15 @@ let serviceProcess: ChildProcess | undefined;
 let servicePort: number | undefined;
 
 void app.whenReady().then(async () => {
+  const moduleDirectory = dirname(fileURLToPath(import.meta.url));
   const paths = desktopRuntimePaths({
-    appPath: __dirname,
+    appPath: moduleDirectory,
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     userDataPath: app.getPath("userData")
   });
+  await ensureEnvFile(paths);
+  await ensurePackagedRuntime(paths);
   const apiBaseUrl = await startLocalService(paths);
   const window = createMainWindow(paths.adminDist, apiBaseUrl);
 
@@ -51,7 +55,7 @@ function createMainWindow(adminDist: string, apiBaseUrl: string) {
       contextIsolation: true,
       devTools: true,
       nodeIntegration: false,
-      preload: join(__dirname, "preload.js")
+      preload: join(dirname(fileURLToPath(import.meta.url)), "preload.cjs")
     },
     width: 1440
   });
@@ -74,7 +78,7 @@ async function startLocalService(paths: ReturnType<typeof desktopRuntimePaths>) 
   const databasePath = join(paths.userDataRoot, "data", "analyze-music.db");
   const storageRoot = join(paths.userDataRoot, "managed-audio");
   const entry = join(paths.nodeServiceRoot, "dist/main.js");
-  const environment = {
+  const environment: NodeJS.ProcessEnv = {
     ...process.env,
     DATABASE_URL: `file:${databasePath}`,
     ELECTRON_RUN_AS_NODE: "1",
@@ -82,9 +86,15 @@ async function startLocalService(paths: ReturnType<typeof desktopRuntimePaths>) 
     MUSIC_STORAGE_PATH: storageRoot,
     PORT: String(port)
   };
+  if (app.isPackaged && !environment["MUSIC_ANALYZER_SCRIPT"]) {
+    environment["MUSIC_ANALYZER_SCRIPT"] = join(
+      process.resourcesPath,
+      "tools/music-analyzer/main.py"
+    );
+  }
   await access(entry);
   serviceProcess = spawn(process.execPath, [`--env-file-if-exists=${envPath}`, entry], {
-    cwd: paths.nodeServiceRoot,
+    cwd: paths.userDataRoot,
     env: environment,
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -92,6 +102,45 @@ async function startLocalService(paths: ReturnType<typeof desktopRuntimePaths>) 
   serviceProcess.stdout?.on("data", (chunk: Buffer) => process.stdout.write(chunk));
   await waitForHealth(`http://127.0.0.1:${port}/api/health`);
   return `http://127.0.0.1:${port}/api`;
+}
+
+async function ensureEnvFile(paths: ReturnType<typeof desktopRuntimePaths>) {
+  try {
+    await access(paths.envPath);
+    return;
+  } catch {
+    // The packaged app gets a user-editable copy on first launch when one was bundled.
+  }
+  if (!app.isPackaged) return;
+
+  const bundledEnvPath = join(process.resourcesPath, "default.env");
+  try {
+    await access(bundledEnvPath);
+    await mkdir(paths.userDataRoot, { recursive: true });
+    await copyFile(bundledEnvPath, paths.envPath);
+  } catch {
+    // Settings can still be configured from the desktop UI after launch.
+  }
+}
+
+async function ensurePackagedRuntime(paths: ReturnType<typeof desktopRuntimePaths>) {
+  if (!app.isPackaged) return;
+  try {
+    await access(join(paths.nodeServiceRoot, "dist/main.js"));
+    await access(join(paths.nodeServiceRoot, "node_modules/@analyze-music/database/package.json"));
+    return;
+  } catch {
+    // Rebuild the user-data runtime when it is missing or incomplete.
+  }
+  const bundledServiceRoot = join(process.resourcesPath, "node-service");
+  const bundledDependenciesRoot = join(process.resourcesPath, "dependencies");
+  const runtimeRoot = dirname(paths.nodeServiceRoot);
+  await rm(runtimeRoot, { force: true, recursive: true });
+  await mkdir(runtimeRoot, { recursive: true });
+  await cp(bundledServiceRoot, paths.nodeServiceRoot, { recursive: true });
+  await cp(bundledDependenciesRoot, join(paths.nodeServiceRoot, "node_modules"), {
+    recursive: true
+  });
 }
 
 async function waitForHealth(url: string) {
@@ -159,6 +208,3 @@ async function findFreePort() {
 export function getServicePortForTests() {
   return servicePort;
 }
-
-// Prevent Electron from blocking the app process when this module is loaded in a non-Electron test.
-void session;
