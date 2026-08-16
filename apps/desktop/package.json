@@ -1,0 +1,44 @@
+{
+  "name": "@analyze-music/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "pnpm run build && electron dist/main.js",
+    "lint": "eslint src tests --max-warnings=0",
+    "pack": "pnpm run prepare-runtime && pnpm run build && electron-builder --dir",
+    "prepare-runtime": "node scripts/prepare-runtime.mjs",
+    "start": "electron dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  },
+  "build": {
+    "appId": "com.analyzemusic.desktop",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "extraResources": [
+      {
+        "from": "runtime/admin",
+        "to": "admin"
+      },
+      {
+        "from": "runtime/node-service",
+        "to": "node-service"
+      }
+    ],
+    "files": [
+      "dist/**"
+    ]
+  }
+}

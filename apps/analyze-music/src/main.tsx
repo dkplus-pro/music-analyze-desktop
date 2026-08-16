@@ -8,4 +8,5 @@ if (!element) {
   throw new Error("Missing root element");
 }
 
-createRoot(element).render(<App />);
+const apiBaseUrl = new URLSearchParams(window.location.search).get("api") ?? undefined;
+createRoot(element).render(<App apiBaseUrl={apiBaseUrl} />);
