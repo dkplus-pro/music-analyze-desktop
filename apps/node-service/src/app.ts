@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -28,6 +28,11 @@ import {
 import type { DeterministicAnalyzer } from "./services/deterministic-analyzer.js";
 import type { FeishuLibraryProvisioner } from "./services/feishu-exporter.js";
 import { createFeishuSyncService, type FeishuExportTrack } from "./services/feishu-sync-service.js";
+import {
+  analysisFilePath,
+  canReleaseManagedPath,
+  isSourceAvailable
+} from "./services/source-file.js";
 
 interface BuildAppOptions {
   analyzer?: MusicAnalyzer;
@@ -104,7 +109,7 @@ export async function buildApp({
     if (result.kind !== "IMPORTED") return result;
     if (!analysisQueue) {
       const track = await findTrack(database, result.trackId);
-      if (track) await rm(track.managedPath, { force: true });
+      if (track && canReleaseManagedPath(track)) await rm(track.managedPath, { force: true });
       return result;
     }
     await analysisQueue.enqueue(result.trackId);
@@ -444,7 +449,7 @@ export async function buildApp({
         .code(502)
         .send({ error: error instanceof Error ? error.message : String(error) });
     }
-    await rm(track.managedPath, { force: true });
+    if (canReleaseManagedPath(track)) await rm(track.managedPath, { force: true });
     await database.db.delete(musicTracks).where(eq(musicTracks.id, id));
     return reply.code(204).send();
   });
@@ -465,7 +470,7 @@ export async function buildApp({
     if (latestJob && isActiveAnalysisStatus(latestJob.status)) {
       return reply.code(409).send({ error: "Music analysis is already in progress" });
     }
-    if (!(await isSourceAvailable(track.managedPath))) {
+    if (!(await isSourceAvailable(analysisFilePath(track)))) {
       return reply
         .code(409)
         .send({ error: "Music source has been released; re-import it to analyze" });
@@ -503,7 +508,7 @@ export async function buildApp({
       if (
         latestJob?.status !== "COMPLETED" &&
         !isActiveAnalysisStatus(latestJob?.status) &&
-        (await isSourceAvailable(track.managedPath))
+        (await isSourceAvailable(analysisFilePath(track)))
       ) {
         tracksToAnalyze.push(track);
       }
@@ -565,15 +570,6 @@ async function findTrack(database: Database, id: string) {
     .where(eq(musicTracks.id, id))
     .limit(1);
   return tracks[0];
-}
-
-async function isSourceAvailable(managedPath: string) {
-  try {
-    await access(managedPath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function enrichTracks(

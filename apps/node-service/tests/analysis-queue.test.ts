@@ -15,15 +15,18 @@ describe("analysis queue", () => {
   beforeEach(async () => {
     temporaryRoot = await mkdtemp(join(tmpdir(), "analyze-music-analysis-"));
     database = await createDatabase({ url: `file:${join(temporaryRoot, "music.db")}` });
-    await writeFile(join(temporaryRoot, "sample.mp3"), "audio");
+    const sourcePath = join(temporaryRoot, "source.mp3");
+    const managedPath = join(temporaryRoot, "managed-sample.mp3");
+    await writeFile(sourcePath, "audio");
+    await writeFile(managedPath, "audio");
     await database.db.insert(musicTracks).values({
       id: randomUUID(),
       fileHash: randomUUID(),
       fileSize: 1,
       format: "mp3",
-      managedPath: join(temporaryRoot, "sample.mp3"),
+      managedPath,
       originalFilename: "sample.mp3",
-      sourcePath: join(temporaryRoot, "sample.mp3"),
+      sourcePath,
       title: "sample"
     });
   });

@@ -6,7 +6,8 @@ export const musicIdSchema = z.string().uuid();
 
 export const importMusicRequestSchema = z.object({
   sourcePath: z.string().min(1),
-  originalFilename: z.string().min(1).optional()
+  originalFilename: z.string().min(1).optional(),
+  storageMode: z.enum(["LINKED_SOURCE", "MANAGED_COPY"]).optional()
 });
 
 export const musicTrackSchema = z.object({

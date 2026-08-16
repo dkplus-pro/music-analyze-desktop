@@ -14,6 +14,7 @@ import { eq, sql } from "drizzle-orm";
 
 import type { MusicAnalyzer } from "./analysis-service.js";
 import type { DeterministicAnalyzer, DeterministicFeatures } from "./deterministic-analyzer.js";
+import { analysisFilePath, canReleaseManagedPath } from "./source-file.js";
 
 interface AnalysisQueueOptions {
   analyzer: MusicAnalyzer;
@@ -50,45 +51,46 @@ export function createAnalysisQueue({ analyzer, database, featureAnalyzer }: Ana
         .where(eq(analysisJobs.id, job.id));
 
       let completed = false;
-      let managedPath: string | undefined;
+      let track: typeof musicTracks.$inferSelect | undefined;
       try {
         const tracks = await database.db
           .select()
           .from(musicTracks)
           .where(eq(musicTracks.id, job.trackId))
           .limit(1);
-        const track = tracks[0];
-        if (!track) {
+        const currentTrack = tracks[0];
+        if (!currentTrack) {
           throw new Error(`Music track ${job.trackId} does not exist`);
         }
-        managedPath = track.managedPath;
+        track = currentTrack;
+        const filePath = analysisFilePath(currentTrack);
 
-        const features = await extractFeatures(featureAnalyzer, track.managedPath);
+        const features = await extractFeatures(featureAnalyzer, filePath);
         if (features) {
-          await persistFeatures(database, track.id, features);
+          await persistFeatures(database, currentTrack.id, features);
         }
 
         await updateStatus(database, job.id, "AI_ANALYZING");
         const result = analysisResultSchema.parse(
           await analyzer.analyze({
-            filePath: track.managedPath,
+            filePath,
             features,
             metadata: {
-              bitRate: track.bitRate,
-              bpm: features?.bpm ?? track.bpm,
-              channels: track.channels,
-              durationMs: track.durationMs,
-              format: track.format,
-              key: features?.key ?? track.musicalKey,
-              mode: features?.mode ?? track.musicalMode,
-              sampleRate: track.sampleRate
+              bitRate: currentTrack.bitRate,
+              bpm: features?.bpm ?? currentTrack.bpm,
+              channels: currentTrack.channels,
+              durationMs: currentTrack.durationMs,
+              format: currentTrack.format,
+              key: features?.key ?? currentTrack.musicalKey,
+              mode: features?.mode ?? currentTrack.musicalMode,
+              sampleRate: currentTrack.sampleRate
             }
           })
         );
         await updateStatus(database, job.id, "VALIDATING");
         await database.db.insert(musicAnalysis).values({
           id: randomUUID(),
-          musicId: track.id,
+          musicId: currentTrack.id,
           primaryEmotion: result.primaryEmotion,
           secondaryEmotions: result.secondaryEmotions,
           narrativeFunctions: result.narrativeFunctions,
@@ -118,7 +120,7 @@ export function createAnalysisQueue({ analyzer, database, featureAnalyzer }: Ana
           valence: result.valence ?? null,
           rawAiResult: JSON.stringify(result)
         });
-        await database.db.delete(musicSegments).where(eq(musicSegments.musicId, track.id));
+        await database.db.delete(musicSegments).where(eq(musicSegments.musicId, currentTrack.id));
         if (result.segments?.length) {
           await database.db.insert(musicSegments).values(
             result.segments.map((segment) => ({
@@ -126,7 +128,7 @@ export function createAnalysisQueue({ analyzer, database, featureAnalyzer }: Ana
               endMs: segment.endMs,
               energy: segment.energy ?? null,
               id: randomUUID(),
-              musicId: track.id,
+              musicId: currentTrack.id,
               startMs: segment.startMs,
               tension: segment.tension ?? null,
               type: segment.type
@@ -147,8 +149,8 @@ export function createAnalysisQueue({ analyzer, database, featureAnalyzer }: Ana
           .where(eq(analysisJobs.id, job.id));
         return { id: job.id, status: "FAILED" as const };
       } finally {
-        if (completed && managedPath) {
-          await rm(managedPath, { force: true }).catch(() => undefined);
+        if (completed && track && canReleaseManagedPath(track)) {
+          await rm(track.managedPath, { force: true }).catch(() => undefined);
         }
       }
     },
@@ -167,7 +169,7 @@ export function createAnalysisQueue({ analyzer, database, featureAnalyzer }: Ana
         throw new Error(`Analysis job ${jobId} cannot be retried from ${job.status}`);
       }
       const tracks = await database.db
-        .select({ managedPath: musicTracks.managedPath })
+        .select({ managedPath: musicTracks.managedPath, sourcePath: musicTracks.sourcePath })
         .from(musicTracks)
         .where(eq(musicTracks.id, job.trackId))
         .limit(1);
@@ -176,7 +178,7 @@ export function createAnalysisQueue({ analyzer, database, featureAnalyzer }: Ana
         throw new Error(`Music track ${job.trackId} does not exist`);
       }
       try {
-        await access(track.managedPath);
+        await access(analysisFilePath(track));
       } catch {
         throw new Error("Music source has been released; re-import it to retry analysis");
       }

@@ -119,6 +119,65 @@ describe("music HTTP API", () => {
     ).toBe(404);
   });
 
+  it("analyzes a linked source without copying or deleting the original file", async () => {
+    const imported = await app.inject({
+      method: "POST",
+      url: "/api/import",
+      payload: {
+        originalFilename: "10 希望.mp3",
+        sourcePath: samplePath,
+        storageMode: "LINKED_SOURCE"
+      }
+    });
+
+    expect(imported.statusCode).toBe(201);
+    const { trackId } = imported.json() as { trackId: string };
+    const [storedTrack] = await database.db.select().from(musicTracks);
+
+    expect(storedTrack?.id).toBe(trackId);
+    expect(storedTrack?.sourcePath).toBe(samplePath);
+    expect(storedTrack?.managedPath).toBe(samplePath);
+    await expect(access(samplePath)).resolves.toBeUndefined();
+    await expect(access(join(temporaryRoot, "music"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    expect((await app.inject({ method: "DELETE", url: `/api/music/${trackId}` })).statusCode).toBe(
+      204
+    );
+    await expect(access(samplePath)).resolves.toBeUndefined();
+  });
+
+  it("keeps a linked source available across a failed analysis and retry", async () => {
+    remainingAnalysisFailures = 1;
+    const imported = await app.inject({
+      method: "POST",
+      url: "/api/import",
+      payload: {
+        originalFilename: "10 希望.mp3",
+        sourcePath: samplePath,
+        storageMode: "LINKED_SOURCE"
+      }
+    });
+
+    expect(imported.statusCode).toBe(201);
+    const { trackId } = imported.json() as { trackId: string };
+    const failedJobs = (
+      await app.inject({ method: "GET", url: "/api/analysis-jobs" })
+    ).json() as Array<{ id: string; status: string }>;
+    expect(failedJobs).toMatchObject([{ status: "FAILED" }]);
+    await expect(access(samplePath)).resolves.toBeUndefined();
+
+    const retry = await app.inject({
+      method: "POST",
+      url: `/api/analysis-jobs/${failedJobs[0]!.id}/retry`
+    });
+    expect(retry.statusCode).toBe(202);
+    expect(retry.json()).toMatchObject({ status: "COMPLETED" });
+    expect(
+      (await app.inject({ method: "GET", url: `/api/music/${trackId}` })).json()
+    ).toMatchObject({ analysisStatus: "COMPLETED" });
+    await expect(access(samplePath)).resolves.toBeUndefined();
+  });
+
   it("imports an audio file supplied by the browser as multipart form data", async () => {
     const boundary = "----analyze-music-boundary";
     const audio = await readFile(samplePath);

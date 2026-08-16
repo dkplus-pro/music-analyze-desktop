@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, rename, stat } from "node:fs/promises";
-import { basename, extname, join, parse } from "node:path";
+import { basename, extname, isAbsolute, join, parse } from "node:path";
 
 import { eq } from "drizzle-orm";
 
@@ -17,6 +17,7 @@ interface ImportFileInput {
   importJobId?: string;
   originalFilename?: string;
   sourcePath: string;
+  storageMode?: "LINKED_SOURCE" | "MANAGED_COPY";
 }
 
 interface ImportServiceOptions {
@@ -35,8 +36,12 @@ export function createImportService({
       importFileId,
       importJobId: existingImportJobId,
       sourcePath,
-      originalFilename = basename(sourcePath)
+      originalFilename = basename(sourcePath),
+      storageMode = "MANAGED_COPY"
     }: ImportFileInput): Promise<ImportResult> => {
+      if (storageMode === "LINKED_SOURCE" && !isAbsolute(sourcePath)) {
+        throw new Error("Linked audio sources must use an absolute path");
+      }
       const importJobId = existingImportJobId ?? randomUUID();
       if (!existingImportJobId) {
         await database.db.insert(importJobs).values({
@@ -73,12 +78,15 @@ export function createImportService({
           stat(sourcePath),
           probeAudioMetadata(sourcePath)
         ]);
-        const managedPath = await copyManagedFile({
-          fileHash,
-          originalFilename,
-          sourcePath,
-          storageRoot
-        });
+        const managedPath =
+          storageMode === "LINKED_SOURCE"
+            ? sourcePath
+            : await copyManagedFile({
+                fileHash,
+                originalFilename,
+                sourcePath,
+                storageRoot
+              });
         const trackId = randomUUID();
         await database.db.insert(musicTracks).values({
           id: trackId,
