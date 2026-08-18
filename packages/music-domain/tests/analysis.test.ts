@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { analysisResultSchema, effectiveValue } from "../src/index";
+import { analysisResultSchema, effectiveValue, normalizeOptionalTaxonomyTags } from "../src/index";
 
 describe("analysisResultSchema", () => {
   it("accepts a fixed-taxonomy analysis result", () => {
@@ -67,5 +67,23 @@ describe("analysisResultSchema", () => {
 describe("effectiveValue", () => {
   it("uses an operator override instead of the AI value", () => {
     expect(effectiveValue("Nostalgic", "Sad")).toBe("Nostalgic");
+  });
+});
+
+describe("normalizeOptionalTaxonomyTags", () => {
+  it("drops unsupported values only from optional taxonomy tag arrays", () => {
+    expect(
+      normalizeOptionalTaxonomyTags({
+        notRecommendedScenes: ["战争", "恐怖片", "追逐", 1],
+        primaryEmotion: "Nostalgic",
+        secondaryEmotions: ["Warm", "Sentimental", "Sad"],
+        summary: "x"
+      })
+    ).toEqual({
+      notRecommendedScenes: ["战争", "追逐"],
+      primaryEmotion: "Nostalgic",
+      secondaryEmotions: ["Warm", "Sad"],
+      summary: "x"
+    });
   });
 });

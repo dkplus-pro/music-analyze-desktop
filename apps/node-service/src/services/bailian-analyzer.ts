@@ -6,6 +6,7 @@ import {
   cinematicStyleValues,
   instrumentationValues,
   narrativeFunctionValues,
+  normalizeOptionalTaxonomyTags,
   primaryEmotionValues,
   sceneTagValues,
   segmentTypeValues,
@@ -111,7 +112,7 @@ function parseAnalysis(
 ): { data: AnalysisResult; success: true } | { error: Error; success: false } {
   try {
     const parsedJson = JSON.parse(extractJson(raw));
-    const parsed = analysisResultSchema.safeParse(parsedJson);
+    const parsed = analysisResultSchema.safeParse(normalizeOptionalTaxonomyTags(parsedJson));
     if (parsed.success) {
       return { data: parsed.data, success: true };
     }

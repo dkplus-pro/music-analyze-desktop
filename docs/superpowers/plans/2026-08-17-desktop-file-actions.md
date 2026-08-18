@@ -4,7 +4,7 @@
 
 **Goal:** Open linked source music in the operating system's default player, reveal it in its folder, and close the details inspector by overlay click or `Escape`.
 
-**Architecture:** Add a narrow Electron file-action module that validates linked source paths and delegates only to `shell.openPath` and `shell.showItemInFolder`. Extend the preload bridge and use it from the React library UI; the browser build retains its existing detail-opening title click. Keep dialog dismissal fully local to `TrackInspector`.
+**Architecture:** Add a narrow Electron file-action module that validates canonical linked source paths and delegates only to `shell.openPath` and `shell.showItemInFolder`. The preload bridge accepts only library track IDs; the main process resolves them through a per-launch-token-protected local-service endpoint. The browser build retains its existing detail-opening title click. Keep dialog dismissal fully local to `TrackInspector`.
 
 **Tech Stack:** Electron 40 IPC and shell APIs, TypeScript, React 19, Vitest, Testing Library, Playwright.
 
@@ -12,7 +12,7 @@
 
 - Source music files must never be copied, moved, or deleted by playback or folder-reveal actions.
 - Electron-only operations must remain behind the context-isolated preload bridge; the React renderer must not import Electron.
-- Desktop failures must become user-facing notices; source paths that are missing, unreadable, or directories must not reach Electron shell APIs.
+- Desktop failures must become user-facing notices; renderer-provided paths must never reach Electron shell APIs, and resolved paths that are missing, unreadable, unsupported, or directories must not reach them either.
 - In browser mode, clicking a track name must preserve the existing inspector behavior and the folder action must not be rendered.
 - The inspector must close from its close button, its outside layer, and `Escape`, but never when its internal content is clicked.
 
@@ -32,10 +32,11 @@
 **Interfaces:**
 
 - Produces `DesktopFileActionResult = { error: string | null }`.
-- Produces `createDesktopFileActions({ shell, stat })` with `openFile(sourcePath: unknown): Promise<DesktopFileActionResult>` and `showItemInFolder(sourcePath: unknown): Promise<DesktopFileActionResult>`.
-- Extends `window.musicDesktop` with `openFile(sourcePath: string)` and `showItemInFolder(sourcePath: string)`, each returning `Promise<DesktopFileActionResult>`.
+- Produces `createDesktopFileActions({ access, realpath, shell, stat })` with internal `openFile(sourcePath: unknown): Promise<DesktopFileActionResult>` and `showItemInFolder(sourcePath: unknown): Promise<DesktopFileActionResult>`.
+- Adds `createDesktopTrackFileActions`, which resolves a library track ID through the token-protected local-service endpoint before calling the validated file actions.
+- Extends `window.musicDesktop` with `openTrack(trackId: string)` and `showTrackInFolder(trackId: string)`, each returning `Promise<DesktopFileActionResult>`.
 
-- [ ] **Step 1: Write failing file-action tests**
+- [x] **Step 1: Write failing file-action tests**
 
 ```ts
 it("opens an accessible audio file with the default player", async () => {
@@ -63,13 +64,13 @@ it("does not invoke shell for a missing source file", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused desktop test and verify it fails**
+- [x] **Step 2: Run the focused desktop test and verify it fails**
 
 Run: `pnpm --filter @analyze-music/desktop test -- file-actions.test.ts`
 
 Expected: FAIL because `file-actions.ts` and `createDesktopFileActions` do not exist.
 
-- [ ] **Step 3: Implement the minimal validated Electron action module and IPC handlers**
+- [x] **Step 3: Implement the minimal validated Electron action module and IPC handlers**
 
 ```ts
 export type DesktopFileActionResult = { error: string | null };
@@ -108,9 +109,9 @@ export function createDesktopFileActions({ shell, stat }: DesktopFileActionsDepe
 }
 ```
 
-Create the actions in `main.ts` with Electron `shell` and Node `stat`, register `open-file` and `show-item-in-folder` handlers, then expose exactly those names from `preload.cjs`. Mirror the result and methods in both renderer bridge declaration files.
+Create the actions in `main.ts` with Electron `shell` and Node read-access/canonical-path checks. Register `open-track` and `show-track-in-folder` handlers that trust only the local main renderer, resolve source paths by track ID through a per-launch token, then expose exactly those names from `preload.cjs`. Mirror the result and methods in both renderer bridge declaration files.
 
-- [ ] **Step 4: Run focused desktop tests and type/lint checks**
+- [x] **Step 4: Run focused desktop tests and type/lint checks**
 
 Run: `pnpm --filter @analyze-music/desktop test -- file-actions.test.ts && pnpm --filter @analyze-music/desktop typecheck && pnpm --filter @analyze-music/desktop lint`
 
@@ -134,11 +135,11 @@ git commit -m "feat: add desktop source file actions"
 
 **Interfaces:**
 
-- Consumes `window.musicDesktop.openFile(sourcePath)` and `window.musicDesktop.showItemInFolder(sourcePath)` from Task 1.
-- Extends `MusicTrack` with `sourcePath: string`.
+- Consumes `window.musicDesktop.openTrack(trackId)` and `window.musicDesktop.showTrackInFolder(trackId)` from Task 1.
+- Keeps `MusicTrack` free of source paths.
 - Produces `TrackRow` callbacks for playback, details, and folder reveal.
 
-- [ ] **Step 1: Write failing UI tests for desktop controls and dismissal**
+- [x] **Step 1: Write failing UI tests for desktop controls and dismissal**
 
 ```tsx
 it("uses the desktop bridge to play a track and reveal its source folder", async () => {
@@ -175,13 +176,13 @@ it("closes the track inspector from its layer and Escape", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused UI tests and verify they fail**
+- [x] **Step 2: Run the focused UI tests and verify they fail**
 
 Run: `pnpm --filter @analyze-music/admin test -- music-page.test.tsx`
 
 Expected: FAIL because the play/folder bridge calls, details action, and layer/keyboard dismiss behavior do not yet exist.
 
-- [ ] **Step 3: Implement minimal UI behavior**
+- [x] **Step 3: Implement minimal UI behavior**
 
 ```tsx
 const openTrack = async (track: MusicTrack) => {
@@ -189,7 +190,7 @@ const openTrack = async (track: MusicTrack) => {
     setSelectedTrackId(track.id);
     return;
   }
-  const result = await window.musicDesktop.openFile(track.sourcePath);
+  const result = await window.musicDesktop.openTrack(track.id);
   if (result.error) setNotice(`无法打开“${track.title}”：${result.error}`);
 };
 
@@ -200,7 +201,7 @@ const openTrack = async (track: MusicTrack) => {
 
 In `TrackInspector`, add a `keydown` listener that calls `onClose` for `Escape`, clean it up with the scroll-lock effect, and add an outside-layer click handler that only closes when `event.target === event.currentTarget`. Preserve the existing close button. Add small action spacing and a visible focus state without changing the established dark workstation visual language.
 
-- [ ] **Step 4: Run focused UI tests, build, typecheck, and lint**
+- [x] **Step 4: Run focused UI tests, build, typecheck, and lint**
 
 Run: `pnpm --filter @analyze-music/admin test -- music-page.test.tsx && pnpm --filter @analyze-music/admin build && pnpm --filter @analyze-music/admin typecheck && pnpm --filter @analyze-music/admin lint`
 
@@ -224,27 +225,27 @@ git commit -m "feat: open music files from desktop library"
 - Consumes the Task 1 preload methods and Task 2 controls in the packaged application.
 - Produces a smoke test proving the new bridge is available after Electron packaging.
 
-- [ ] **Step 1: Write a failing packaged-app bridge assertion**
+- [x] **Step 1: Write a failing packaged-app bridge assertion**
 
 ```ts
 expect(
   await page.evaluate(() =>
-    Boolean(window.musicDesktop?.openFile && window.musicDesktop?.showItemInFolder)
+    Boolean(window.musicDesktop?.openTrack && window.musicDesktop?.showTrackInFolder)
   )
 ).toBe(true);
 ```
 
-- [ ] **Step 2: Run the Electron test and verify it fails before the bridge is added**
+- [x] **Step 2: Run the Electron test and verify it fails before the bridge is added**
 
 Run: `pnpm --filter @analyze-music/desktop test:electron`
 
 Expected: FAIL because the packaged preload does not expose both file-action methods.
 
-- [ ] **Step 3: Add the packaged-app assertion and preserve source-file invariants**
+- [x] **Step 3: Add the packaged-app assertion and preserve source-file invariants**
 
-Add the assertion after the existing `isAvailable` check. Do not launch the actual OS player or Finder in Playwright; the unit tests from Task 1 cover those shell calls. Keep the existing source hash, mode, size, and modification-time assertions unchanged.
+Add the assertion after the existing `isAvailable` check. In Playwright, mock the Electron shell and assert both calls receive the original source path; do not launch the actual OS player or Finder. Keep the existing source hash, mode, size, and modification-time assertions unchanged. Also cover repair of a matching-revision runtime whose required entry file is missing.
 
-- [ ] **Step 4: Run complete verification**
+- [x] **Step 4: Run complete verification**
 
 Run: `pnpm electron:test && pnpm --filter @analyze-music/music-domain test && pnpm --filter @analyze-music/node-service test && pnpm --filter @analyze-music/admin test && pnpm --filter @analyze-music/desktop typecheck && pnpm --filter @analyze-music/admin typecheck && pnpm --filter @analyze-music/desktop lint && pnpm --filter @analyze-music/admin lint && pnpm exec prettier --check apps/desktop/src/file-actions.ts apps/desktop/tests/file-actions.test.ts apps/desktop/src/main.ts apps/desktop/src/preload.cjs apps/desktop/src/electron-api.d.ts apps/analyze-music/src/App.tsx apps/analyze-music/src/api.ts apps/analyze-music/src/styles.css apps/analyze-music/src/vite-env.d.ts apps/analyze-music/tests/music-page.test.tsx apps/desktop/tests/electron/desktop-analysis.spec.ts && git diff --check`
 

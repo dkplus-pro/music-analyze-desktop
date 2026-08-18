@@ -26,4 +26,19 @@ describe("Bailian CLI analyzer", () => {
     expect(arguments_).toContain("--audio");
     expect(arguments_).toContain("--text-only");
   });
+
+  it("filters unsupported optional tags from a CLI completion", async () => {
+    const analyzer = createBailianCliAnalyzer({
+      command: "bl-test",
+      run: async () =>
+        '{\n  "content": "{\\n  \\"primaryEmotion\\": \\"Nostalgic\\", \\"secondaryEmotions\\": [\\"Warm\\", \\"Sentimental\\"], \\"narrativeFunctions\\": [\\"Memory\\"], \\"cinematicStyles\\": [\\"Drama\\"], \\"cinematicScore\\": 8, \\"notRecommendedScenes\\": [\\"战争\\", \\"恐怖片\\"], \\"summary\\": \\"Warm piano\\"\\n}"\n}'
+    });
+
+    await expect(
+      analyzer.analyze({ filePath: "/tmp/remember-me.mp3", metadata: {} })
+    ).resolves.toMatchObject({
+      notRecommendedScenes: ["战争"],
+      secondaryEmotions: ["Warm"]
+    });
+  });
 });

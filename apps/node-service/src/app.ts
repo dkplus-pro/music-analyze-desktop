@@ -65,6 +65,7 @@ export async function buildApp({
   storageRoot
 }: BuildAppOptions) {
   const app = Fastify({ logger: false });
+  const desktopFileActionToken = process.env["MUSIC_DESKTOP_FILE_ACTION_TOKEN"];
   await app.register(multipart, { limits: { files: 1, fileSize: 500 * 1024 * 1024 } });
   const importer = createImportService({ database, storageRoot });
   const activeSettingsService =
@@ -437,6 +438,20 @@ export async function buildApp({
       return reply.code(404).send({ error: "Music track not found" });
     }
     return (await enrichTracks(database, [track], true))[0]!;
+  });
+
+  app.get("/api/desktop/music/:id/source-path", async (request, reply) => {
+    if (
+      !desktopFileActionToken ||
+      request.headers["x-music-desktop-file-action-token"] !== desktopFileActionToken
+    ) {
+      return reply.code(404).send({ error: "Music track not found" });
+    }
+    const track = await findTrack(database, (request.params as { id: string }).id);
+    if (!track) {
+      return reply.code(404).send({ error: "Music track not found" });
+    }
+    return { sourcePath: analysisFilePath(track) };
   });
 
   app.patch("/api/music/:id", async (request, reply) => {

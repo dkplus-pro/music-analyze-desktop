@@ -441,6 +441,11 @@ h2 {
   background: none;
   text-align: left;
 }
+.track-name:focus-visible,
+.row-actions button:focus-visible {
+  outline: 1px solid #d7b66e;
+  outline-offset: 4px;
+}
 .track-name em {
   color: #8b7350;
   font-family: Georgia, serif;

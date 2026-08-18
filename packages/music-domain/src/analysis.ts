@@ -72,6 +72,40 @@ export const analysisResultSchema = z.object({
 
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 
+/**
+ * AI providers occasionally return descriptive tags outside the fixed taxonomy.
+ * These three fields are optional discovery aids, so retaining only their known
+ * values keeps an otherwise valid analysis usable without weakening the schema
+ * for required fields.
+ */
+export function normalizeOptionalTaxonomyTags(value: unknown): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return value;
+  }
+
+  const result: Record<string, unknown> = { ...value };
+  result["secondaryEmotions"] = filterTaxonomyValues(
+    result["secondaryEmotions"],
+    primaryEmotionValues
+  );
+  result["recommendedScenes"] = filterTaxonomyValues(result["recommendedScenes"], sceneTagValues);
+  result["notRecommendedScenes"] = filterTaxonomyValues(
+    result["notRecommendedScenes"],
+    sceneTagValues
+  );
+  return result;
+}
+
 export function effectiveValue<T>(manual: T | null | undefined, ai: T | null | undefined) {
   return manual ?? ai;
+}
+
+function filterTaxonomyValues(value: unknown, allowedValues: readonly string[]) {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+  return value.filter(
+    (candidate): candidate is string =>
+      typeof candidate === "string" && allowedValues.includes(candidate)
+  );
 }

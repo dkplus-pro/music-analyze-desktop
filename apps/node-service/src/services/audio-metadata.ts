@@ -26,7 +26,7 @@ interface FfprobeOutput {
 }
 
 export async function readAudioMetadata(sourcePath: string): Promise<AudioMetadata> {
-  const { stdout } = await execFileAsync("ffprobe", [
+  const { stdout } = await execFileAsync(process.env["MUSIC_FFPROBE_PATH"] || "ffprobe", [
     "-v",
     "error",
     "-show_entries",

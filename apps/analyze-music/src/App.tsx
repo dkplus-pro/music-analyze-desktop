@@ -198,6 +198,27 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
     }
     importMutation.mutate(audioFiles);
   };
+  const playTrack = async (track: MusicTrack) => {
+    if (!window.musicDesktop?.isAvailable) {
+      setSelectedTrackId(track.id);
+      return;
+    }
+    try {
+      const result = await window.musicDesktop.openTrack(track.id);
+      if (result.error) setNotice(`无法播放“${track.title}”：${result.error}`);
+    } catch (error) {
+      setNotice(`无法播放“${track.title}”：${errorMessage(error)}`);
+    }
+  };
+  const showTrackInFolder = async (track: MusicTrack) => {
+    if (!window.musicDesktop?.isAvailable) return;
+    try {
+      const result = await window.musicDesktop.showTrackInFolder(track.id);
+      if (result.error) setNotice(`无法打开“${track.title}”所在文件夹：${result.error}`);
+    } catch (error) {
+      setNotice(`无法打开“${track.title}”所在文件夹：${errorMessage(error)}`);
+    }
+  };
 
   return (
     <main className="workstation">
@@ -550,9 +571,12 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
                           ? () => retryMutation.mutate(track.analysisJobId!)
                           : undefined
                       }
+                      onShowItemInFolder={() => void showTrackInFolder(track)}
+                      onPlay={() => void playTrack(track)}
                       onSelect={() => setSelectedTrackId(track.id)}
                       retrying={retryMutation.isPending}
                       track={track}
+                      desktopAvailable={desktopAvailable}
                     />
                   ))}
                   {!musicQuery.isLoading && tracks.length === 0 ? (
@@ -781,20 +805,26 @@ function SettingBadge({ configured }: { configured: boolean }) {
 }
 
 function TrackRow({
+  desktopAvailable,
   deleting,
   index,
   onAnalyze,
   onDelete,
+  onPlay,
   onRetry,
+  onShowItemInFolder,
   onSelect,
   retrying,
   track
 }: {
+  desktopAvailable: boolean;
   deleting: boolean;
   index: number;
   onAnalyze: () => void;
   onDelete: () => void;
+  onPlay: () => void;
   onRetry?: () => void;
+  onShowItemInFolder: () => void;
   onSelect: () => void;
   retrying: boolean;
   track: MusicTrack;
@@ -802,7 +832,12 @@ function TrackRow({
   const emotion = toChinese(track.manualPrimaryEmotion ?? track.primaryEmotion ?? "—");
   return (
     <div className="track-row" role="row">
-      <button className="track-name" type="button" onClick={onSelect}>
+      <button
+        aria-label={`播放 ${track.title}`}
+        className="track-name"
+        type="button"
+        onClick={onPlay}
+      >
         <em>{String(index).padStart(2, "0")}</em>
         <span>
           {track.title}
@@ -826,6 +861,14 @@ function TrackRow({
         <StatusBadge status={track.analysisStatus} />
       </span>
       <span className="row-actions">
+        <button type="button" onClick={onSelect}>
+          详情
+        </button>
+        {desktopAvailable ? (
+          <button type="button" onClick={onShowItemInFolder}>
+            打开所在文件夹
+          </button>
+        ) : null}
         {track.analysisStatus === "COMPLETED" ? (
           <span className="row-complete">已分析</span>
         ) : track.analysisStatus === "FAILED" ? (
@@ -928,15 +971,25 @@ function TrackInspector({
   useEffect(() => {
     if (!track) return;
     const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
     document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
     return () => {
       document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [track]);
+  }, [onClose, track]);
   if (!track) return null;
   const details = detailsQuery.data ?? track;
   return (
-    <div className="inspector-layer">
+    <div
+      className="inspector-layer"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <aside aria-label="音轨详情" aria-modal="true" className="inspector" role="dialog">
         <header className="inspector-head">
           <div>

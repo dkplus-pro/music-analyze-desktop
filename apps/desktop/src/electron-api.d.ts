@@ -4,10 +4,16 @@ export interface DesktopFile {
   size: number;
 }
 
+export interface DesktopFileActionResult {
+  error: string | null;
+}
+
 export interface MusicDesktopApi {
   isAvailable: true;
+  openTrack: (trackId: string) => Promise<DesktopFileActionResult>;
   selectFiles: () => Promise<DesktopFile[]>;
   selectFolder: () => Promise<DesktopFile[]>;
+  showTrackInFolder: (trackId: string) => Promise<DesktopFileActionResult>;
   toggleDevTools: () => Promise<void>;
 }
 

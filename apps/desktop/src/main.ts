@@ -1,16 +1,40 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access, copyFile, cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import {
+  access,
+  copyFile,
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat
+} from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  shell,
+  type IpcMainInvokeEvent,
+  type OpenDialogOptions
+} from "electron";
 
+import { createDesktopFileActions, type DesktopFileActionResult } from "./file-actions.js";
 import { desktopRuntimePaths, isDevToolsShortcut } from "./runtime.js";
+import { createDesktopTrackFileActions } from "./track-file-actions.js";
 
 const supportedExtensions = new Set([".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"]);
 const audioFilters = [{ name: "Audio", extensions: ["mp3", "wav", "flac", "m4a", "aac", "ogg"] }];
 let serviceProcess: ChildProcess | undefined;
 let servicePort: number | undefined;
+let mainWindow: BrowserWindow | undefined;
 
 void app.whenReady().then(async () => {
   const moduleDirectory = dirname(fileURLToPath(import.meta.url));
@@ -22,17 +46,40 @@ void app.whenReady().then(async () => {
   });
   await ensureEnvFile(paths);
   await ensurePackagedRuntime(paths);
-  const apiBaseUrl = await startLocalService(paths);
-  const window = createMainWindow(paths.adminDist, apiBaseUrl);
+  const desktopFileActionToken = randomUUID();
+  const apiBaseUrl = await startLocalService(paths, desktopFileActionToken);
+  mainWindow = createMainWindow(paths.adminDist, apiBaseUrl);
+  const fileActions = createDesktopFileActions({
+    access: (sourcePath) => access(sourcePath, constants.R_OK),
+    realpath,
+    shell,
+    stat
+  });
+  const trackFileActions = createDesktopTrackFileActions({
+    apiBaseUrl,
+    desktopFileActionToken,
+    fetchImplementation: fetch,
+    fileActions
+  });
 
   ipcMain.handle("select-files", () =>
-    selectFiles(window, { properties: ["openFile", "multiSelections"] })
+    selectFilesFromCurrentWindow({ properties: ["openFile", "multiSelections"] })
   );
-  ipcMain.handle("select-folder", () => selectFiles(window, { properties: ["openDirectory"] }));
-  ipcMain.handle("toggle-dev-tools", () => window.webContents.toggleDevTools());
+  ipcMain.handle("select-folder", () =>
+    selectFilesFromCurrentWindow({ properties: ["openDirectory"] })
+  );
+  ipcMain.handle("open-track", (event, trackId: unknown) =>
+    runTrustedFileAction(event, mainWindow, () => trackFileActions.openTrack(trackId))
+  );
+  ipcMain.handle("show-track-in-folder", (event, trackId: unknown) =>
+    runTrustedFileAction(event, mainWindow, () => trackFileActions.showTrackInFolder(trackId))
+  );
+  ipcMain.handle("toggle-dev-tools", () => mainWindow?.webContents.toggleDevTools());
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow(paths.adminDist, apiBaseUrl);
+    if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = createMainWindow(paths.adminDist, apiBaseUrl);
+    }
   });
 });
 
@@ -71,7 +118,32 @@ function createMainWindow(adminDist: string, apiBaseUrl: string) {
   return window;
 }
 
-async function startLocalService(paths: ReturnType<typeof desktopRuntimePaths>) {
+async function selectFilesFromCurrentWindow(options: OpenDialogOptions) {
+  if (!mainWindow || mainWindow.isDestroyed()) return [];
+  return selectFiles(mainWindow, options);
+}
+
+async function runTrustedFileAction(
+  event: IpcMainInvokeEvent,
+  window: BrowserWindow | undefined,
+  action: () => Promise<DesktopFileActionResult>
+) {
+  if (
+    !window ||
+    window.isDestroyed() ||
+    event.sender !== window.webContents ||
+    !event.sender.getURL().startsWith("file:") ||
+    (event.senderFrame && event.senderFrame !== window.webContents.mainFrame)
+  ) {
+    return { error: "不允许从当前页面执行文件操作。" };
+  }
+  return action();
+}
+
+async function startLocalService(
+  paths: ReturnType<typeof desktopRuntimePaths>,
+  desktopFileActionToken: string
+) {
   const port = await findFreePort();
   servicePort = port;
   const envPath = paths.envPath;
@@ -82,6 +154,7 @@ async function startLocalService(paths: ReturnType<typeof desktopRuntimePaths>) 
     ...process.env,
     DATABASE_URL: `file:${databasePath}`,
     ELECTRON_RUN_AS_NODE: "1",
+    MUSIC_DESKTOP_FILE_ACTION_TOKEN: desktopFileActionToken,
     MUSIC_ENV_PATH: envPath,
     MUSIC_STORAGE_PATH: storageRoot,
     PORT: String(port)
@@ -91,6 +164,10 @@ async function startLocalService(paths: ReturnType<typeof desktopRuntimePaths>) 
       process.resourcesPath,
       "tools/music-analyzer/main.py"
     );
+  }
+  if (app.isPackaged) {
+    environment["MUSIC_FFPROBE_PATH"] = join(process.resourcesPath, "tools/bin/ffprobe");
+    environment["MUSIC_FFMPEG_PATH"] = join(process.resourcesPath, "tools/bin/ffmpeg");
   }
   await access(entry);
   serviceProcess = spawn(process.execPath, [`--env-file-if-exists=${envPath}`, entry], {
@@ -125,22 +202,66 @@ async function ensureEnvFile(paths: ReturnType<typeof desktopRuntimePaths>) {
 
 async function ensurePackagedRuntime(paths: ReturnType<typeof desktopRuntimePaths>) {
   if (!app.isPackaged) return;
-  try {
-    await access(join(paths.nodeServiceRoot, "dist/main.js"));
-    await access(join(paths.nodeServiceRoot, "node_modules/@analyze-music/database/package.json"));
-    return;
-  } catch {
-    // Rebuild the user-data runtime when it is missing or incomplete.
-  }
   const bundledServiceRoot = join(process.resourcesPath, "node-service");
   const bundledDependenciesRoot = join(process.resourcesPath, "dependencies");
+  const bundledRevision = await readRuntimeRevision(bundledServiceRoot);
+  const installedRevision = await readRuntimeRevision(paths.nodeServiceRoot).catch(() => undefined);
+  if (
+    installedRevision === bundledRevision &&
+    (await packagedRuntimeIsComplete(paths.nodeServiceRoot))
+  ) {
+    return;
+  }
+
   const runtimeRoot = dirname(paths.nodeServiceRoot);
-  await rm(runtimeRoot, { force: true, recursive: true });
   await mkdir(runtimeRoot, { recursive: true });
-  await cp(bundledServiceRoot, paths.nodeServiceRoot, { recursive: true });
-  await cp(bundledDependenciesRoot, join(paths.nodeServiceRoot, "node_modules"), {
+  const stagingRoot = join(runtimeRoot, `node-service-next-${randomUUID()}`);
+  const previousRoot = join(runtimeRoot, `node-service-previous-${randomUUID()}`);
+  await cp(bundledServiceRoot, stagingRoot, { recursive: true });
+  await cp(bundledDependenciesRoot, join(stagingRoot, "node_modules"), {
     recursive: true
   });
+  let previousRuntimeExists = false;
+  let runtimeActivated = false;
+  try {
+    try {
+      await rename(paths.nodeServiceRoot, previousRoot);
+      previousRuntimeExists = true;
+    } catch (error) {
+      if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+    }
+    await rename(stagingRoot, paths.nodeServiceRoot);
+    runtimeActivated = true;
+    if (previousRuntimeExists) {
+      await rm(previousRoot, { force: true, recursive: true }).catch(() => undefined);
+    }
+  } catch (error) {
+    await rm(stagingRoot, { force: true, recursive: true });
+    if (previousRuntimeExists && !runtimeActivated) {
+      await rename(previousRoot, paths.nodeServiceRoot);
+    }
+    throw error;
+  }
+}
+
+async function readRuntimeRevision(serviceRoot: string) {
+  const revision = (await readFile(join(serviceRoot, ".runtime-revision"), "utf8")).trim();
+  if (!revision) throw new Error(`Runtime revision is missing from ${serviceRoot}`);
+  return revision;
+}
+
+async function packagedRuntimeIsComplete(serviceRoot: string) {
+  try {
+    await Promise.all([
+      access(join(serviceRoot, "dist/main.js")),
+      access(join(serviceRoot, "node_modules/@analyze-music/database/package.json"))
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function waitForHealth(url: string) {

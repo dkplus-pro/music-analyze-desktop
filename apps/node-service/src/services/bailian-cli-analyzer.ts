@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 
-import { analysisResultSchema, type AnalysisResult } from "@analyze-music/music-domain";
+import {
+  analysisResultSchema,
+  normalizeOptionalTaxonomyTags,
+  type AnalysisResult
+} from "@analyze-music/music-domain";
 
 import type { MusicAnalyzer, MusicAnalyzerInput } from "./analysis-service.js";
 import { analysisInstruction } from "./bailian-analyzer.js";
@@ -93,7 +97,9 @@ function parseAnalysis(
   raw: string
 ): { data: AnalysisResult; success: true } | { error: Error; success: false } {
   try {
-    const parsed = analysisResultSchema.safeParse(JSON.parse(extractJson(raw)));
+    const parsed = analysisResultSchema.safeParse(
+      normalizeOptionalTaxonomyTags(JSON.parse(extractJson(raw)))
+    );
     if (parsed.success) return { data: parsed.data, success: true };
     return {
       error: new Error(parsed.error.issues.map((issue) => issue.path.join(".")).join(", ")),

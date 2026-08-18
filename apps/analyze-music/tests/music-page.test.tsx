@@ -46,6 +46,7 @@ const track = {
     }
   ],
   summary: "Warm piano memory cue",
+  sourcePath: "/music/remember-me.mp3",
   textures: ["Warm", "Intimate"],
   title: "Remember Me",
   trajectory: "Slow Build"
@@ -345,8 +346,10 @@ describe("music management page", () => {
       .mockResolvedValue([{ name: "remember-me.mp3", path: "/music/remember-me.mp3", size: 1024 }]);
     const desktopBridge = {
       isAvailable: true,
+      openTrack: vi.fn().mockResolvedValue({ error: null }),
       selectFiles,
       selectFolder: vi.fn().mockResolvedValue([]),
+      showTrackInFolder: vi.fn().mockResolvedValue({ error: null }),
       toggleDevTools: vi.fn()
     };
     Object.defineProperty(window, "musicDesktop", {
@@ -366,6 +369,71 @@ describe("music management page", () => {
     expect(
       await screen.findByText("已记录源文件并提交分析，源文件不会被复制或删除。")
     ).toBeTruthy();
+  });
+
+  it("uses the desktop bridge to play a track and reveal its source folder", async () => {
+    const user = userEvent.setup();
+    const openTrack = vi.fn().mockResolvedValue({ error: null });
+    const showTrackInFolder = vi.fn().mockResolvedValue({ error: null });
+    Object.defineProperty(window, "musicDesktop", {
+      configurable: true,
+      value: {
+        isAvailable: true,
+        openTrack,
+        selectFiles: vi.fn(),
+        selectFolder: vi.fn(),
+        showTrackInFolder,
+        toggleDevTools: vi.fn()
+      }
+    });
+
+    await renderApp();
+
+    await user.click(await screen.findByRole("button", { name: "播放 Remember Me" }));
+    await user.click(screen.getByRole("button", { name: "打开所在文件夹" }));
+
+    expect(openTrack).toHaveBeenCalledWith("track-1");
+    expect(showTrackInFolder).toHaveBeenCalledWith("track-1");
+    await user.click(screen.getByRole("button", { name: "详情" }));
+    expect(await screen.findByRole("dialog", { name: "音轨详情" })).toBeTruthy();
+  });
+
+  it("shows a clear notice when the desktop player cannot open a track", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, "musicDesktop", {
+      configurable: true,
+      value: {
+        isAvailable: true,
+        openTrack: vi.fn().mockResolvedValue({ error: "默认播放器不可用。" }),
+        selectFiles: vi.fn(),
+        selectFolder: vi.fn(),
+        showTrackInFolder: vi.fn().mockResolvedValue({ error: null }),
+        toggleDevTools: vi.fn()
+      }
+    });
+
+    await renderApp();
+    await user.click(await screen.findByRole("button", { name: "播放 Remember Me" }));
+
+    expect(await screen.findByText("无法播放“Remember Me”：默认播放器不可用。")).toBeTruthy();
+  });
+
+  it("closes details from its outside layer and Escape without closing for content clicks", async () => {
+    const user = userEvent.setup();
+    await renderApp();
+
+    expect(screen.queryByRole("button", { name: "打开所在文件夹" })).toBeNull();
+    await user.click(await screen.findByRole("button", { name: /Remember Me/ }));
+    const inspector = await screen.findByRole("dialog", { name: "音轨详情" });
+    await user.click(within(inspector).getByText("速度 / 调性"));
+    expect(screen.getByRole("dialog", { name: "音轨详情" })).toBeTruthy();
+
+    await user.click(inspector.parentElement!);
+    expect(screen.queryByRole("dialog", { name: "音轨详情" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Remember Me/ }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "音轨详情" })).toBeNull();
   });
 
   it("requests music one page at a time", async () => {

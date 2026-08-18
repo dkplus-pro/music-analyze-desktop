@@ -25,7 +25,7 @@ export function createWaveformService({
 async function decodeMonoPcm(filePath: string) {
   return new Promise<Buffer>((resolve, reject) => {
     const child = spawn(
-      "ffmpeg",
+      process.env["MUSIC_FFMPEG_PATH"] || "ffmpeg",
       ["-v", "error", "-i", filePath, "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1"],
       {
         stdio: ["ignore", "pipe", "pipe"]

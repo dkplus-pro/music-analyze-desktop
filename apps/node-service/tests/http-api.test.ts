@@ -14,6 +14,7 @@ import { createSettingsService } from "../src/services/settings-service.js";
 const samplePath = fileURLToPath(
   new URL("../../../tests/sample/10%20%E5%B8%8C%E6%9C%9B.mp3", import.meta.url)
 );
+const desktopFileActionToken = "desktop-file-action-test-token";
 
 describe("music HTTP API", () => {
   let temporaryRoot: string;
@@ -22,6 +23,7 @@ describe("music HTTP API", () => {
   let remainingAnalysisFailures: number;
 
   beforeEach(async () => {
+    process.env["MUSIC_DESKTOP_FILE_ACTION_TOKEN"] = desktopFileActionToken;
     temporaryRoot = await mkdtemp(join(tmpdir(), "analyze-music-api-"));
     database = await createDatabase({ url: `file:${join(temporaryRoot, "music.db")}` });
     const settingsEnvPath = join(temporaryRoot, ".env");
@@ -77,6 +79,7 @@ describe("music HTTP API", () => {
   afterEach(async () => {
     await app.close();
     database.close();
+    delete process.env["MUSIC_DESKTOP_FILE_ACTION_TOKEN"];
     await rm(temporaryRoot, { force: true, recursive: true });
   });
 
@@ -155,6 +158,39 @@ describe("music HTTP API", () => {
       204
     );
     await expect(access(samplePath)).resolves.toBeUndefined();
+  });
+
+  it("resolves a library source path only for the trusted desktop action token", async () => {
+    const imported = await app.inject({
+      method: "POST",
+      url: "/api/import",
+      payload: {
+        originalFilename: "10 希望.mp3",
+        sourcePath: samplePath,
+        storageMode: "LINKED_SOURCE"
+      }
+    });
+    const { trackId } = imported.json() as { trackId: string };
+    const url = `/api/desktop/music/${trackId}/source-path`;
+
+    expect((await app.inject({ method: "GET", url })).statusCode).toBe(404);
+    expect(
+      (
+        await app.inject({
+          headers: { "x-music-desktop-file-action-token": "incorrect" },
+          method: "GET",
+          url
+        })
+      ).statusCode
+    ).toBe(404);
+
+    const response = await app.inject({
+      headers: { "x-music-desktop-file-action-token": desktopFileActionToken },
+      method: "GET",
+      url
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ sourcePath: samplePath });
   });
 
   it("keeps a linked source available across a failed analysis and retry", async () => {

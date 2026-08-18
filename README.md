@@ -35,7 +35,7 @@ pnpm electron:pack
 pnpm electron:test
 ```
 
-`electron:pack` 的 macOS 产物位于 `apps/desktop/release/`。首次启动会从项目 `.env` 生成用户目录下的可编辑配置副本；请勿把真实凭证提交到 Git。桌面窗口按 `F12` 可打开/关闭 DevTools。
+`electron:pack` 的 macOS 产物位于 `apps/desktop/release/`。打包产物会携带独立的 FFmpeg 与 ffprobe 可执行文件，因此从 Finder 启动时不依赖 Homebrew 或其 `PATH`。交叉架构打包时，先为目标平台安装依赖，并设置 `MUSIC_DESKTOP_TARGET_PLATFORM` 与 `MUSIC_DESKTOP_TARGET_ARCH`；缺少目标二进制时打包会中止，避免误带入构建机架构。首次启动会从项目 `.env` 生成用户目录下的可编辑配置副本；请勿把真实凭证提交到 Git。桌面窗口按 `F12` 可打开/关闭 DevTools。
 
 Electron 集成测试会打开打包应用，使用 `tests/sample/10 希望.mp3` 完成一次真实分析，并校验请求使用 `LINKED_SOURCE`、源文件内容未变化且没有生成受管音频副本。测试需要 `.env` 中的百炼配置，或本机 `bl auth status` 已登录。
 

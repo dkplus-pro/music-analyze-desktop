@@ -58,4 +58,32 @@ describe("Bailian analyzer", () => {
       analyzer.analyze({ filePath: "/tmp/sample.mp3", metadata: { format: "mp3" } })
     ).rejects.toThrow("primaryEmotion");
   });
+
+  it("keeps an analysis when only optional taxonomy tags contain unknown values", async () => {
+    let completions = 0;
+    const analyzer = createBailianAnalyzer({
+      complete: async () => {
+        completions += 1;
+        return JSON.stringify({
+          cinematicScore: 8,
+          cinematicStyles: ["Drama"],
+          narrativeFunctions: ["Memory"],
+          notRecommendedScenes: ["战争", "恐怖片", "追逐"],
+          primaryEmotion: "Nostalgic",
+          recommendedScenes: ["人物回忆", "婚礼"],
+          secondaryEmotions: ["Warm", "Sentimental", "Sad"],
+          summary: "Warm piano memory cue"
+        });
+      }
+    });
+
+    await expect(
+      analyzer.analyze({ filePath: "/tmp/sample.mp3", metadata: { format: "mp3" } })
+    ).resolves.toMatchObject({
+      notRecommendedScenes: ["战争", "追逐"],
+      recommendedScenes: ["人物回忆"],
+      secondaryEmotions: ["Warm", "Sad"]
+    });
+    expect(completions).toBe(1);
+  });
 });
