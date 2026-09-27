@@ -147,6 +147,17 @@ beforeAll(async () => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/export/json") {
+      response.end(
+        JSON.stringify({
+          exportedAt: "2026-09-27T00:00:00.000Z",
+          total: 1,
+          tracks: [track]
+        })
+      );
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/api/feishu/export") {
       response.statusCode = 201;
       response.end(
@@ -499,6 +510,48 @@ describe("music management page", () => {
       "飞书导出完成：新增 1，更新 0，跳过 0，失败 0。"
     );
     expect(requestCount("/api/feishu/export")).toBe(1);
+  });
+
+  it("downloads the library as a JSON file", async () => {
+    const user = userEvent.setup();
+    const exported: { blob: Blob | null } = { blob: null };
+    const createObjectURL = vi.fn((blob: Blob) => {
+      exported.blob = blob;
+      return "blob:json-export";
+    });
+    const revokeObjectURL = vi.fn();
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    const originalCreate = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+    const originalRevoke = Object.getOwnPropertyDescriptor(URL, "revokeObjectURL");
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+    try {
+      await renderApp();
+
+      const exportButton = (await screen.findByRole("button", {
+        name: "导出JSON"
+      })) as HTMLButtonElement;
+      await waitFor(() => expect(exportButton.disabled).toBe(false));
+
+      await user.click(exportButton);
+
+      await waitFor(() => expect(requestCount("/api/export/json")).toBe(1));
+      expect(anchorClick).toHaveBeenCalledTimes(1);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:json-export");
+      expect((await screen.findByRole("status")).textContent).toBe(
+        "JSON 导出完成：已保存 1 首音乐。"
+      );
+      const payload = JSON.parse((await exported.blob?.text()) ?? "{}") as { total: number };
+      expect(payload.total).toBe(1);
+    } finally {
+      anchorClick.mockRestore();
+      if (originalCreate) Object.defineProperty(URL, "createObjectURL", originalCreate);
+      else delete (URL as { createObjectURL?: unknown }).createObjectURL;
+      if (originalRevoke) Object.defineProperty(URL, "revokeObjectURL", originalRevoke);
+      else delete (URL as { revokeObjectURL?: unknown }).revokeObjectURL;
+    }
   });
 });
 

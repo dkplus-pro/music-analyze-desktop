@@ -256,6 +256,20 @@ export async function buildApp({
     }
   });
 
+  app.get("/api/export/json", async (_request, reply) => {
+    const tracks = await database.db.select().from(musicTracks);
+    const enriched = await enrichFeishuTracks(database, tracks);
+    reply.header(
+      "content-disposition",
+      `attachment; filename="analyze-music-export-${new Date().toISOString().slice(0, 10)}.json"`
+    );
+    return {
+      exportedAt: new Date().toISOString(),
+      total: enriched.length,
+      tracks: enriched
+    };
+  });
+
   app.post("/api/import", async (request, reply) => {
     if (request.isMultipart()) {
       const upload = await request.file();

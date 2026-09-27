@@ -12,6 +12,7 @@ import {
   MusicApi,
   type DesktopFileReference,
   type ImportSessionSnapshot,
+  type JsonExport,
   type MusicFilters,
   type MusicTrack
 } from "./api";
@@ -140,6 +141,14 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
         `飞书导出完成：新增 ${result.created}，更新 ${result.updated}，跳过 ${result.skipped}，失败 ${result.failed}。`
       );
       await refresh();
+    }
+  });
+  const exportJsonMutation = useMutation({
+    mutationFn: () => api.exportJson(),
+    onError: (error) => setNotice(error instanceof Error ? error.message : "JSON 导出失败"),
+    onSuccess: (result) => {
+      downloadJsonExport(result);
+      setNotice(`JSON 导出完成：已保存 ${result.total} 首音乐。`);
     }
   });
   const retryMutation = useMutation({
@@ -373,6 +382,15 @@ function MusicLibrary({ apiBaseUrl }: { apiBaseUrl: string }) {
                   onClick={() => feishuExportMutation.mutate()}
                 >
                   导出飞书
+                </button>
+                <button
+                  className="outline-button"
+                  disabled={exportJsonMutation.isPending || (musicQuery.data?.total ?? 0) === 0}
+                  title="将资料库的完整分析数据导出为 JSON 文件"
+                  type="button"
+                  onClick={() => exportJsonMutation.mutate()}
+                >
+                  导出JSON
                 </button>
                 <button
                   className="solid-button"
@@ -1195,6 +1213,18 @@ function formatDate(value: string) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "无法读取音乐资料库";
+}
+
+function downloadJsonExport(payload: JsonExport) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `analyze-music-export-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function hasActiveAnalysis(status: MusicTrack["analysisStatus"] | "NONE") {

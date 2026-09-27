@@ -91,6 +91,12 @@ export interface FeishuExportResult {
   updated: number;
 }
 
+export interface JsonExport {
+  exportedAt: string;
+  total: number;
+  tracks: MusicTrack[];
+}
+
 export interface MusicListResponse {
   items: MusicTrack[];
   total: number;
@@ -328,6 +334,10 @@ export class MusicApi {
 
   async exportFeishu() {
     return this.request<FeishuExportResult>("/feishu/export", { method: "POST" });
+  }
+
+  async exportJson() {
+    return this.request<JsonExport>("/export/json");
   }
 
   async createFeishuLibrary(name?: string) {

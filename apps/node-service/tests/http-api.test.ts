@@ -526,6 +526,37 @@ describe("music HTTP API", () => {
       await exportApp.close();
     }
   });
+
+  it("exports the complete library as a JSON download", async () => {
+    const empty = await app.inject({ method: "GET", url: "/api/export/json" });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.headers["content-disposition"]).toContain("attachment");
+    expect(empty.json()).toMatchObject({ total: 0, tracks: [] });
+
+    const imported = await app.inject({
+      method: "POST",
+      payload: { originalFilename: "10 希望.mp3", sourcePath: samplePath },
+      url: "/api/import"
+    });
+    expect(imported.statusCode).toBe(201);
+    const trackId = (imported.json() as { trackId: string }).trackId;
+
+    const exported = await app.inject({ method: "GET", url: "/api/export/json" });
+    expect(exported.statusCode).toBe(200);
+    const payload = exported.json() as {
+      exportedAt: string;
+      total: number;
+      tracks: Array<Record<string, unknown>>;
+    };
+    expect(payload.total).toBe(1);
+    expect(payload.exportedAt).toEqual(expect.any(String));
+    expect(payload.tracks[0]).toMatchObject({
+      analysisStatus: "COMPLETED",
+      id: trackId,
+      primaryEmotion: "Nostalgic",
+      title: "10 希望"
+    });
+  });
 });
 
 function multipartPayload(boundary: string, audio: Buffer, filename: string) {
