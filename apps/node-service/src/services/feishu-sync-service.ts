@@ -60,6 +60,7 @@ export interface FeishuExportTrack {
     tension: number | null;
     type: string;
   }>;
+  sourcePath: string;
   summary: string | null;
   tension: number | null;
   textures: string[];

@@ -116,6 +116,7 @@ const fullTrack: FeishuExportTrack = {
       type: "Climax"
     }
   ],
+  sourcePath: "/music/warm-theme.mp3",
   summary: "温暖的钢琴主题逐步推进至明亮高潮。",
   tension: 5,
   textures: ["Warm", "Spacious"],

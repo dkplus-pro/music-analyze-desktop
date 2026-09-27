@@ -550,10 +550,12 @@ describe("music HTTP API", () => {
     };
     expect(payload.total).toBe(1);
     expect(payload.exportedAt).toEqual(expect.any(String));
+    const [storedTrack] = await database.db.select().from(musicTracks);
     expect(payload.tracks[0]).toMatchObject({
       analysisStatus: "COMPLETED",
       id: trackId,
       primaryEmotion: "Nostalgic",
+      sourcePath: storedTrack?.managedPath,
       title: "10 希望"
     });
   });

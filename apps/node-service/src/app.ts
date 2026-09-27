@@ -767,6 +767,7 @@ async function enrichFeishuTracks(
     scale: track.scale ?? null,
     secondaryEmotions: track.secondaryEmotions,
     segments: track.segments ?? [],
+    sourcePath: analysisFilePath(track),
     summary: track.summary ?? null,
     tension: track.tension ?? null,
     textures: track.textures,
